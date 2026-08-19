@@ -1,0 +1,2 @@
+import { describe, expect, it } from "vitest"; import { eligibleRoutes } from "./index.js";
+describe("routing invariants",()=>it("rejects expired quotes and insufficient capacity",()=>{const now=Date.now(); const invoice:any={id:"i",amountSats:100n}; const merchant:any={settlementPolicy:{maxFeeSats:1000n,maxSettlementSeconds:100}}; const quote:any={quoteExpiresAt:new Date(now-1).toISOString(),routes:[]}; expect(eligibleRoutes(invoice,quote,merchant,now)).toHaveLength(0);}));

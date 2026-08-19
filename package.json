@@ -1,0 +1,8 @@
+{
+  "name": "satsloom",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {"spike:tachi": "tsx scripts/spike-tachi.ts", "test": "vitest run"},
+  "devDependencies": {"tsx": "^4.19.0", "typescript": "^5.6.3", "vitest": "^2.1.8"}
+}
