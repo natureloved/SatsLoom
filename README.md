@@ -91,7 +91,7 @@ Every box links to the code that implements it.
   step — 34 checks covering the invoice, the payment, the proof link, the webhook, the fallback,
   the refund and both payouts. It exits non-zero on any failure, so "the deployed demo works" is a
   command, not a claim. Run it twice in a row; that is the shipping bar.
-- 89 tests pass (6 more are live-daemon contract tests, skipped without regtest access), including a
+- 101 tests pass (6 more are live-daemon contract tests, skipped without regtest access), including a
   full `invoice → pay → confirm → proof → refund → payout` loop
   ([`apps/api/src/server.test.ts`](apps/api/src/server.test.ts)), the cryptography that moves money
   ([`adapter.test.ts`](packages/tachi-adapter/src/adapter.test.ts)), and every page actually mounting
@@ -212,6 +212,7 @@ invoice expiry. Refunds cannot exceed the invoice, and only a confirmed invoice 
 
 | Variable | Why it matters |
 | --- | --- |
+| `.env` | Loaded automatically (nearest file, walking up from the working directory). A variable already set in the real environment always wins, so Fly secrets and `docker -e` beat a stray file in a checkout. |
 | `TACHI_PROVIDER` | `live` (default) or `fixture`. Fixture mode is labelled in the UI; it never reports `mode: "live"`. |
 | `MERCHANT_MNEMONIC` / `DEMO_PAYER_MNEMONIC` / `COLD_MNEMONIC` | Server-side only; also accept `*_FILE` for secrets mounts. In live mode a missing key is a **hard error** — SatsLoom will not silently substitute a published test vector. |
 | `PAYOUT_ADDRESS` | Taproot address for sweeps. Unset ⇒ the on-chain route reports itself unavailable instead of pretending. |

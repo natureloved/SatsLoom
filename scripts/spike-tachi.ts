@@ -17,6 +17,8 @@ import { dirname, resolve } from "node:path";
 import { TachiAdapter, ROLES, isAdapterError } from "@satsloom/tachi-adapter";
 import { describeTimelock } from "@satsloom/shared";
 
+loadDotEnv();
+
 const args = new Set(process.argv.slice(2));
 const write = args.has("--write");
 const fixture = args.has("--fixture");

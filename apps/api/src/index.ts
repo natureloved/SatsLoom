@@ -2,7 +2,11 @@
  * API entry point. Binds 0.0.0.0 so the container/preview host can reach it, and reports the
  * daemon mode it started with — a deployment that boots in `degraded` should say so in its logs.
  */
+import { loadDotEnv } from "@satsloom/shared";
 import { buildApp } from "./server.js";
+
+// Before anything reads configuration: `cp .env.example .env` has to actually take effect.
+loadDotEnv();
 
 const port = Number(process.env.PORT ?? 3001);
 const { app, adapter } = buildApp();

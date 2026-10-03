@@ -17,6 +17,7 @@
  */
 import { setTimeout as sleep } from "node:timers/promises";
 import { TachiAdapter } from "@satsloom/tachi-adapter";
+import { loadDotEnv } from "@satsloom/shared";
 
 type Envelope<T> = {
   requestId?: string;
@@ -36,6 +37,8 @@ type Envelope<T> = {
   settlement?: Settlement | null;
   route?: { id?: string } | null;
 };
+
+loadDotEnv();
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {

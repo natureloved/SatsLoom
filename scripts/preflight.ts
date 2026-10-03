@@ -9,6 +9,9 @@
  *   npm run preflight -- --amount 1000000 --wait
  */
 import { TachiAdapter } from "@satsloom/tachi-adapter";
+import { loadDotEnv } from "@satsloom/shared";
+
+loadDotEnv();
 
 const args = process.argv.slice(2);
 const flag = (name: string) => {

@@ -92,6 +92,14 @@ defects would have shipped, and one of them would have been the worst possible b
   sweep destination would watch the daemon indicator turn amber and conclude the network was down.
   The pill now reports the daemon's actual state on failures too.
 
+### Day 3 — the setup step that did nothing
+
+`README` said `cp .env.example .env`; nothing read the file. The first live attempt would have
+started in `live` mode with no mnemonics and failed with "MERCHANT_MNEMONIC is not set" while a
+correctly filled-in `.env` sat in the checkout. The API and every operator script now load the
+nearest `.env` (walking up from the working directory) before touching configuration, with real
+environment variables taking precedence — Fly secrets and `docker -e` must outrank a file.
+
 ### Day 3 — UI, deploy, and the write-up
 
 - Four pages: dashboard, pay page, liquidity/routes, policy editor — plus the plugin tab with a

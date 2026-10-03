@@ -279,6 +279,8 @@ export function jsonSafe<T>(value: T): T {
   );
 }
 
+export { loadDotEnv, parseEnvFile, providerFromEnv } from "./env.js";
+
 export {
   BLOCK_SECONDS,
   blocksToSeconds,
