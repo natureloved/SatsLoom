@@ -1005,6 +1005,8 @@ const payUrl = \`${window.location.origin}/#/pay/\${invoice.data.id}\`;`}</pre>
         <p className="small muted mt">
           Attributes: <code>data-satsloom-invoice</code> (required), <code>data-satsloom-api</code> (defaults to the script's origin),{" "}
           <code>data-satsloom-label</code>, <code>data-satsloom-theme</code> (<code>dark</code> | <code>light</code>).
+          The older <code>data-satsloom-pay-origin</code> still works as an alias for{" "}
+          <code>data-satsloom-api</code>.
         </p>
       </Panel>
 

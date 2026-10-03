@@ -7,13 +7,18 @@
  *           data-satsloom-label="Pay with sats"
  *           data-satsloom-theme="dark"></script>
  *
+ * `data-satsloom-api` is the origin the pay page is opened from; it defaults to the script's own
+ * origin, which is right whenever the API and the button are served from the same host. The older
+ * `data-satsloom-pay-origin` spelling is still read as an alias. Documented attributes and read
+ * attributes disagreeing is how an integration silently points at the wrong backend.
+ *
  * The button opens the real pay page in a modal iframe rather than re-implementing it. That is a
  * deliberate choice: one payment surface means the QR, the countdown, the live status polling and
  * the explorer proof behave identically whether the customer arrived from a shop or from a link,
  * and there is no second implementation to drift.
  *
- * Degradation is explicit: with no `data-satsloom-pay-origin` and no reachable page, the click
- * falls back to a normal link — a customer who wants to pay is never blocked by our JavaScript.
+ * Degradation is explicit: when the pay page cannot be reached, the click falls back to a normal
+ * link — a customer who wants to pay is never blocked by our JavaScript.
  */
 (function () {
   "use strict";
@@ -37,7 +42,12 @@
   var label = script.getAttribute("data-satsloom-label") || "Pay with sats";
   var theme = script.getAttribute("data-satsloom-theme") || "dark";
   var scriptOrigin = script.src.replace(/\/embed\.js.*$/, "");
-  var payOrigin = (script.getAttribute("data-satsloom-pay-origin") || scriptOrigin).replace(/\/$/, "");
+  if (!scriptOrigin) scriptOrigin = window.location.origin;
+  var payOrigin = (
+    script.getAttribute("data-satsloom-api") || // the documented name
+    script.getAttribute("data-satsloom-pay-origin") || // older alias, still honoured
+    scriptOrigin
+  ).replace(/\/$/, "");
   var payUrl = payOrigin + "/#/pay/" + encodeURIComponent(invoiceId);
   var palette = theme === "light"
     ? { surface: "#ffffff", text: "#111111", line: "#e5e5e5", gold: "#8a6400" }

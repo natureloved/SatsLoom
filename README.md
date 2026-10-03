@@ -91,9 +91,13 @@ Every box links to the code that implements it.
   step — 34 checks covering the invoice, the payment, the proof link, the webhook, the fallback,
   the refund and both payouts. It exits non-zero on any failure, so "the deployed demo works" is a
   command, not a claim. Run it twice in a row; that is the shipping bar.
-- 83 tests pass, including a full `invoice → pay → confirm → proof → refund → payout` loop
-  ([`apps/api/src/server.test.ts`](apps/api/src/server.test.ts)) and the cryptography that moves money
-  ([`adapter.test.ts`](packages/tachi-adapter/src/adapter.test.ts)).
+- 89 tests pass (6 more are live-daemon contract tests, skipped without regtest access), including a
+  full `invoice → pay → confirm → proof → refund → payout` loop
+  ([`apps/api/src/server.test.ts`](apps/api/src/server.test.ts)), the cryptography that moves money
+  ([`adapter.test.ts`](packages/tachi-adapter/src/adapter.test.ts)), and every page actually mounting
+  ([`render.test.tsx`](apps/web/src/render.test.tsx)). A separate test keeps `embed.js`'s documented
+  attributes and the ones it reads from drifting apart
+  ([`embed-contract.test.ts`](apps/web/src/embed-contract.test.ts)).
 - Every settlement, refund and payout renders an explorer URL. The URL is derived from the
   transaction hash, which is `sha256(encodeTachiTx)` — computed locally, so the link is known before
   the daemon answers.
