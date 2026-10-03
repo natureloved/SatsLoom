@@ -7,9 +7,10 @@ routes, settles deterministically, shows the proof, and fails over automatically
 
 | | |
 | --- | --- |
-| **Live demo** | _deploy target — see [Deploying](#deploying)_ |
-| **30-second video** | _recorded from the click-path in §[Judge click-path](#judge-click-path)_ — beats in [`docs/VIDEO.md`](docs/VIDEO.md) |
+| **Live demo** | _not deployed yet — fill this in once [`deploy/`](deploy) has run (steps in [`docs/SUBMISSION.md`](docs/SUBMISSION.md))_ |
+| **30-second video** | _not recorded yet — the script and shot list are in [`docs/VIDEO.md`](docs/VIDEO.md)_ |
 | **What is actually live** | [`PROGRESS.md`](PROGRESS.md) — read this before the checklists |
+| **Submission pack** | [`docs/SUBMISSION.md`](docs/SUBMISSION.md) — both descriptions, the DM, the topics, the pre-submit list |
 | **Hackathon status** | regtest-first. Signet is a stretch goal, not a claim. |
 
 ```
