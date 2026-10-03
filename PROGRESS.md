@@ -19,7 +19,9 @@ verified on a live daemon says so, in this file and in the UI.
 | Claim | How it was checked | Status |
 | --- | --- | --- |
 | Key derivation, deposit/transfer/withdrawal construction, signing, VTXO id derivation | 34 adapter tests, including cross-checks that the SDK's `vtxoIdFromDeposit` equals our independent `sha256(tx_hash ‖ be_uint32(index))` derivation | **Verified locally** — pure local cryptography, no network involved |
-| Merchant loop end to end: invoice → pay → detect → confirm → proof → refund → payout | `apps/api/src/server.test.ts` (18 tests, real `InvoiceStore`, in-process HTTP) | **Verified locally** |
+| Merchant loop end to end: invoice → pay → detect → confirm → proof → refund → payout | `apps/api/src/server.test.ts` (22 tests, real `InvoiceStore`, in-process HTTP) | **Verified locally** |
+| Every page the judge can click actually renders | `apps/web/src/render.test.tsx` mounts each page in a real DOM against API responses recorded from a running instance | **Verified locally** (happy-dom, not a browser — layout and CSS are unverified) |
+| The full judge click-path, twice in a row | `npm run clickpath` — 34 checks over HTTP against the running API | **Verified locally in fixture mode**; needs a live run on the machine of record |
 | API returns real structured errors, honours idempotency, enforces expiry and amount caps | Same suite, including the negative cases | **Verified locally** |
 | Web app type-checks GLOBALLY and builds clean | `npx tsc --noEmit` on both projects; `npm run build` | **Verified locally** |
 | Fixture demo click-path | Driven end to end over HTTP against the running API | **Verified locally** (fixture ledger — labelled as such in the UI) |
@@ -69,6 +71,27 @@ makes the process exit non-zero, so the same command can gate a deploy.
   refunds, payouts, webhooks, dashboard summary, and a public pay-page endpoint that exposes only
   what a customer needs.
 
+### Day 3 — the bugs the click-path found
+
+Writing the click-path as a script instead of clicking it by hand paid for itself immediately. Two
+defects would have shipped, and one of them would have been the worst possible bug for this product:
+
+- **A false confirmation.** A merchant payout of 1,000 sats left ~499,000 sats of change at the
+  merchant's own vault address. Detection asked "is there a new VTXO at the payment target at least
+  as large as the invoice?" — yes — and marked a pending invoice **paid**. A real merchant would
+  have shipped goods for money that never arrived. Fixed by: only counting outputs the merchant did
+  not create for itself (`selfOwnedVtxoIds` on every spend), preferring an exact-amount match,
+  requiring a real VTXO baseline at invoice creation, and refusing to credit one ledger output to
+  two invoices at once. Regression tests fail without the fix — verified by reverting it.
+
+  The root cause is a design tradeoff worth naming: every invoice shares one payment target, so
+  attribution is inference rather than identity. Deriving a fresh address per invoice is the real
+  fix and is listed as next work; the current rules are the honest version of what one shared
+  address can support.
+- **A status pill that lied.** Every 4xx was stamped `mode: "degraded"`. A merchant who mistyped a
+  sweep destination would watch the daemon indicator turn amber and conclude the network was down.
+  The pill now reports the daemon's actual state on failures too.
+
 ### Day 3 — UI, deploy, and the write-up
 
 - Four pages: dashboard, pay page, liquidity/routes, policy editor — plus the plugin tab with a
@@ -86,10 +109,14 @@ makes the process exit non-zero, so the same command can gate a deploy.
 2. **The withdraw path is the least-exercised code.** It requires a P2TR destination, a CSV-aware
    redemption transaction, and a block to confirm. Its unit tests cover construction and refusal;
    the live confirmation is what the gate needs to show.
-3. **Webhook retries use in-process backoff.** Correct and visible in the delivery log, but a
+3. **Attribution is inference, not identity.** All invoices share the merchant's payment target,
+   so "new VTXO ≥ amount" is the rule, hardened by the exact-amount preference, the self-spend
+   exclusion and the credited-once registry. Per-invoice derived targets remove the ambiguity
+   entirely and are the first item of next work.
+4. **Webhook retries use in-process backoff.** Correct and visible in the delivery log, but a
    process restart drops the retry queue. A durable queue is the next step, and the delivery log is
    honest about which attempt failed.
-4. **Single-merchant policy.** The store is in-memory JSON; multi-tenancy, persistence and
+5. **Single-merchant policy.** The store is in-memory JSON; multi-tenancy, persistence and
    per-merchant API keys are deliberately out of scope for the hackathon.
 
 ## Next

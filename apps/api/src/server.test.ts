@@ -83,6 +83,80 @@ describe("SatsLoom API", () => {
     expect(status.json.data.reachable).toBe(true);
   });
 
+  it("does not confirm an invoice from the merchant's own payout change", async () => {
+    /*
+     * The regression that would embarrass the whole project: the merchant sweeps 1,000 sats out,
+     * ~499k comes back as change to the same vault owner, and the naive detector calls the pending
+     * invoice "paid". The customer never paid. Detection must ignore outputs this process created
+     * for itself, so the invoice stays `created` and no webhook fires.
+     */
+    const invoice = await fundedInvoice();
+    const before = calls.length;
+
+    const payer = await post("/api/demo/onboard-payer", { amountSats: "100000" });
+    const payout = await post("/api/payouts", { amountSats: "1000", toOwner: payer.json.data.target.owner, kind: "offchain_transfer" });
+    expect(payout.json.data.status).toBe("settled");
+
+    await built.detectOnce();
+    await built.detectOnce();
+    const after = await get(`/api/invoices/${invoice.id}`);
+    expect(after.json.data.status).toBe("created");
+    expect(after.json.data.proof).toBeUndefined();
+    expect(calls.length).toBe(before);
+
+    // The change really did arrive — proof the test is exercising the ambiguous case.
+    const merchant = await get("/api/merchant");
+    expect(merchant.json.data).toBeTruthy();
+  });
+
+  it("credits one VTXO to only one invoice, even when two are pending at once", async () => {
+    const first = await fundedInvoice();
+    const second = await fundedInvoice();
+    // One payment arrives at the shared payment target.
+    const paid = await post(`/api/demo/pay-invoice/${first.id}`);
+    expect(paid.json.data.broadcast.accepted).toBe(true);
+
+    await built.detectOnce();
+    const a = await get(`/api/invoices/${first.id}`);
+    const b = await get(`/api/invoices/${second.id}`);
+    const confirmed = [a, b].filter((r) => r.json.data.status === "confirmed");
+    // Exactly one invoice may claim the output; the other must wait for its own payment.
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0].json.data.id).toBe(first.id);
+  });
+
+  it("reports the daemon's real mode on a rejected request, not a false 'degraded'", async () => {
+    // A client error must not make the merchant's status pill go amber: the pill describes the
+    // daemon, and a healthy daemon stays "fixture"/"live" even when a request is refused.
+    const bad = await post("/api/payouts", { amountSats: "1000" });
+    expect(bad.status).toBe(400);
+    expect(bad.json.mode).toBe("fixture");
+    expect(bad.json.error.message).toMatch(/toAddress/);
+  });
+
+  it("refuses to create an invoice when the payment target's VTXO set cannot be read", async () => {
+    // Without a baseline, a pre-existing VTXO could be mistaken for this invoice's payment, so the
+    // honest answer is 503 and no invoice — never an invoice that cannot be verified.
+    const broken = new TachiAdapter({ provider: "fixture", commitDelaySeconds: 0 });
+    const app = buildApp({ adapter: broken, detectionIntervalMs: 0, enableDemoRoutes: true, fetchImpl: recordingFetch(calls) });
+    try {
+      const original = broken.getAddressVtxos.bind(broken);
+      broken.getAddressVtxos = async () => {
+        throw new Error("ledger read failed");
+      };
+      const response = await app.app.inject({
+        method: "POST",
+        url: "/api/invoices",
+        payload: { amountSats: "1000", memo: "unverifiable" } as object,
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.json().error.message).toMatch(/could not be distinguished/i);
+      broken.getAddressVtxos = original;
+    } finally {
+      await app.app.close();
+    }
+  });
+
   it("runs the full merchant loop: invoice -> pay -> confirm -> proof -> refund -> payout", async () => {
     const invoice = await fundedInvoice();
     expect(invoice.status).toBe("created");

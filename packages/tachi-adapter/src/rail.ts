@@ -56,6 +56,12 @@ export type SpendResult = {
   state: "pending" | "committed" | "rejected";
   /** vtxoIds this transaction created, in output order. */
   createdVtxoIds: string[];
+  /**
+   * The subset of `createdVtxoIds` that came back to the spender's own key — i.e. change, or a
+   * self-deposit. These are the merchant's own funds moving between its own vaults and must never
+   * be mistaken for an incoming customer payment.
+   */
+  selfOwnedVtxoIds: string[];
   feeSats: bigint;
   nonce: string;
   kind: SpendKind;
@@ -226,7 +232,7 @@ export class TachiRail {
       feeSats: "0",
       nonce: nonce.toString(),
       createdVtxoIds: [],
-    }, (signed) => signed.outputs.map((_, index) => vtxoIdFromDeposit(signed, index).toString("hex")));
+    }, (signed) => signed.outputs.map((_, index) => vtxoIdFromDeposit(signed, index).toString("hex")), 0n, "self");
   }
 
   /**
@@ -337,6 +343,8 @@ export class TachiRail {
       },
       (_signed, txHash) => ledgerOutputs.map((_, index) => computeCreatedVtxoIds(txHash, index)),
       args.feeSats,
+      // Outputs paying the spender's own key are change, not a payment to someone else.
+      ledgerOutputs.map((output) => (output.owner === identity.xOnly ? "self" : "counterparty")),
     );
   }
 
@@ -346,6 +354,7 @@ export class TachiRail {
     meta: BroadcastMeta,
     deriveCreatedIds: (signed: TachiTx, txHash: string) => string[],
     feeSats = 0n,
+    ownership: ("self" | "counterparty") | ("self" | "counterparty")[] = [],
   ): Promise<SpendResult> {
     let signed: TachiTx;
     try {
@@ -379,11 +388,13 @@ export class TachiRail {
         txid: ack.hash,
       });
     }
+    const tags = Array.isArray(ownership) ? ownership : createdVtxoIds.map(() => ownership);
     return {
       txid: txHash,
       accepted: true,
       state: "pending",
       createdVtxoIds,
+      selfOwnedVtxoIds: createdVtxoIds.filter((_, index) => tags[index] === "self"),
       feeSats,
       nonce: meta.nonce,
       kind: meta.kind === "deposit" ? "transfer" : (meta.kind as SpendKind),

@@ -122,12 +122,24 @@ export function buildApp(options: AppOptions = {}): BuiltApp {
     });
   }
 
-  function fail(reply: FastifyReply, requestId: string, error: unknown, fallbackStatus = 502) {
+  /**
+   * An error reply.
+   *
+   * `mode` describes the *daemon*, not the request outcome. Hardcoding `degraded` here meant a
+   * validation error ("toAddress is required") turned the status pill amber while the daemon was
+   * perfectly healthy — the one indicator a merchant is told to trust was lying. The daemon's real
+   * status is looked up (cheaply, and never fatally) so the pill keeps meaning what it says.
+   */
+  async function fail(reply: FastifyReply, requestId: string, error: unknown, fallbackStatus = 502) {
     const code = isAdapterError(error) ? error.code : "error";
     const status = isAdapterError(error) ? error.statusCode : fallbackStatus;
     const message = error instanceof Error ? error.message : String(error);
     const details = isAdapterError(error) ? error.details : undefined;
-    return reply.code(status).send({ requestId, mode: "degraded", error: { code, message, details }, data: null });
+    const mode = await adapter
+      .getStatus()
+      .then((s) => (s.reachable ? s.mode : "degraded"))
+      .catch(() => "degraded");
+    return reply.code(status).send({ requestId, mode, error: { code, message, details }, data: null });
   }
 
   /* ------------------------------ auth ------------------------------ */
@@ -892,6 +904,26 @@ export function buildApp(options: AppOptions = {}): BuiltApp {
       try {
         const proof = await adapter.detectInvoicePayment(invoice);
         if (!proof) continue;
+        /*
+         * A VTXO is a single ledger output, so it can pay for exactly one thing. The merchant's
+         * payment target is one address, and two invoices pending at once could otherwise both
+         * "detect" the same incoming VTXO and both report a confirmation — double-counting one
+         * customer payment as two. First invoice to see it keeps it; the second waits for its own.
+         */
+        const vtxoId = proof.vtxoId;
+        if (vtxoId) {
+          const claimant = store.creditedVtxoIds.get(vtxoId);
+          if (claimant && claimant !== invoice.id) {
+            store.addActivity({
+              kind: "payment.duplicate",
+              message: `VTXO ${vtxoId.slice(0, 12)}… already credited to invoice ${claimant.slice(0, 8)}; not counted twice`,
+              invoiceId: invoice.id,
+              mode: proof.mode,
+            });
+            continue;
+          }
+          store.creditedVtxoIds.set(vtxoId, invoice.id);
+        }
         invoice.proof = proof;
         const isNew = seenProofs.get(invoice.id) !== proof.txid;
         if (proof.confirmations > 0) {

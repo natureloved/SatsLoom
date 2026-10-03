@@ -41,6 +41,11 @@ export class Store {
   readonly quotes = new Map<string, RouteQuote>();
   readonly decisions = new Map<string, RouteDecision>();
   readonly settlements = new Map<string, SettlementRecord>();
+  /**
+   * Which invoice has claimed which VTXO. A ledger output can only be spent once, so it can only
+   * pay for one invoice; without this the same payment could confirm two pending invoices.
+   */
+  readonly creditedVtxoIds = new Map<string, string>();
   readonly refunds = new Map<string, RefundRecord>();
   readonly payouts = new Map<string, Payout>();
   readonly webhooks = new Map<string, WebhookRegistration>();

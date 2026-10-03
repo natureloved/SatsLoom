@@ -61,6 +61,14 @@ export type TachiAdapterOptions = {
 };
 
 export class TachiAdapter {
+  /**
+   * VTXO ids this process created as `change` from its own spends. A merchant's payout or refund
+   * leaves change at the merchant's own vault address; that output is indistinguishable from an
+   * incoming payment by amount alone, so it is excluded by identity instead. Scoped to the
+   * process — the API's per-invoice baseline covers VTXOs that predate the restart.
+   */
+  private readonly internalVtxoIds = new Set<string>();
+
   private readonly env: NodeJS.ProcessEnv;
   private readonly daemon: TachiDaemon;
   private readonly rail: TachiRail;
@@ -289,23 +297,35 @@ export class TachiAdapter {
     return this.daemon.faucet(address, amountSats);
   }
 
+  /**
+   * Remembers the outputs of our own spends that came back to the spending key. Called on every
+   * value movement this process initiates, because "money arrived at the merchant's address" is not
+   * the same question as "a customer paid" — see `detectInvoicePayment`.
+   */
+  private trackInternalOutputs(result: SpendResult): SpendResult {
+    for (const id of result.selfOwnedVtxoIds) this.internalVtxoIds.add(id);
+    return result;
+  }
+
   /** On-chain -> off-chain: mint a ledger VTXO for a role's own account. */
   async onboard(role: AdapterRole, amountSats: bigint): Promise<SpendResult> {
     const identity = this.identity(role);
-    return this.rail.onboard(identity, amountSats);
+    return this.trackInternalOutputs(await this.rail.onboard(identity, amountSats));
   }
 
   /** Off-chain payment / refund. `toOwner` is a 32-byte x-only ledger key. */
   async transferSats(input: { from: AdapterRole; toOwner: string; amountSats: bigint; memo?: string; feeSats?: bigint }): Promise<SpendResult> {
     if (input.amountSats <= 0n) throw new AdapterError("invalid_amount", "amountSats must be positive", 400);
     const identity = this.identity(input.from);
-    return this.rail.transfer(identity, { toOwner: input.toOwner, amountSats: input.amountSats, memo: input.memo, feeSats: input.feeSats });
+    return this.trackInternalOutputs(
+      await this.rail.transfer(identity, { toOwner: input.toOwner, amountSats: input.amountSats, memo: input.memo, feeSats: input.feeSats }),
+    );
   }
 
   /** Off-chain -> on-chain: redeem ledger value to a Bitcoin P2TR address. */
   async withdrawSats(input: { from: AdapterRole; toAddress: string; amountSats: bigint }): Promise<SpendResult> {
     const identity = this.identity(input.from);
-    return this.rail.withdraw(identity, { toAddress: input.toAddress, amountSats: input.amountSats });
+    return this.trackInternalOutputs(await this.rail.withdraw(identity, { toAddress: input.toAddress, amountSats: input.amountSats }));
   }
 
   async getTxStatus(txid: string): Promise<TxStatusView & { explorerUrl: string }> {
@@ -351,12 +371,25 @@ export class TachiAdapter {
       throw error;
     }
     const candidates = vtxos
-      .filter((v) => !baseline.has(v.vtxoId) && v.state !== "spent")
+      // A VTXO this process created as *change* from one of its own spends is the merchant's own
+      // money moving between its own vaults — never a customer payment. Without this filter a
+      // refund or a payout would mark the next pending invoice as paid, which is the worst
+      // possible failure mode for a payment router: telling a merchant they were paid when they
+      // were not.
+      .filter((v) => !baseline.has(v.vtxoId) && !this.internalVtxoIds.has(v.vtxoId) && v.state !== "spent")
       .sort((a, b) => (a.amountSats === b.amountSats ? a.vtxoId.localeCompare(b.vtxoId) : a.amountSats > b.amountSats ? -1 : 1));
 
-    // Matching is intentionally strict: a new VTXO that covers the invoice. Overpayment is
-    // accepted (merchants want it), anything smaller is not a payment of this invoice.
-    const match = candidates.find((v) => v.amountSats >= invoice.amountSats);
+    /*
+     * Matching order matters, and it is deliberately two-tier:
+     *
+     *  1. An exact-amount VTXO is unambiguous: the customer paid the invoice's price.
+     *  2. Failing that, a larger VTXO counts as overpayment. That case is genuinely ambiguous when
+     *     the merchant reuses one vault address, so it is only ever a fallback — and the API
+     *     additionally refuses to credit the same VTXO to two invoices.
+     *
+     * Anything smaller is not a payment of this invoice, and is not rounded up into one.
+     */
+    const match = candidates.find((v) => v.amountSats === invoice.amountSats) ?? candidates.find((v) => v.amountSats > invoice.amountSats);
     if (!match) return null;
 
     const txid = match.txid ?? (await this.resolveTxidForPayment(owner, match.amountSats));

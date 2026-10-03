@@ -237,6 +237,8 @@ export type ActivityEvent = {
   kind:
     | "invoice.created"
     | "payment.detected"
+  /** A ledger output that was already credited elsewhere; refusing to count it twice. */
+  | "payment.duplicate"
     | "invoice.confirmed"
     | "invoice.expired"
     | "settlement.settled"

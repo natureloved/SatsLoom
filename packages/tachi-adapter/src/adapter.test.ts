@@ -228,6 +228,51 @@ describe("adapter end-to-end on the fixture ledger", () => {
     expect(proof).toBeNull();
   });
 
+  it("does NOT treat the merchant's own payout change as a customer payment", async () => {
+    // The regression that matters most: a payout or a refund leaves change at the merchant's own
+    // vault address. Amount-wise that change is "a new VTXO at least as large as the invoice", so a
+    // naive detector confirms the invoice — telling the merchant they were paid when they merely
+    // moved their own money. Detection must exclude outputs this process created for itself.
+    const adapter = new TachiAdapter(fixtureOptions);
+    await adapter.onboard("merchant", 500_000n);
+    await adapter.onboard("demoPayer", 500_000n);
+    const merchant = await adapter.targetFor("merchant");
+    const payer = await adapter.targetFor("demoPayer");
+    const baseline = (await adapter.getAddressVtxos(merchant.owner)).map((v) => v.vtxoId);
+
+    const invoice = { id: "inv-self", amountSats: 50_000n, paymentTarget: merchant, baselineVtxoIds: baseline };
+    // A merchant payout: 1,000 sats out to the payer, ~498,999 back as change to the merchant.
+    const payout = await adapter.transferSats({ from: "merchant", toOwner: payer.owner, amountSats: 1_000n, memo: "sweep" });
+    expect(payout.selfOwnedVtxoIds).toHaveLength(1);
+    expect(payout.createdVtxoIds).toContain(payout.selfOwnedVtxoIds[0]);
+
+    expect(await adapter.detectInvoicePayment(invoice)).toBeNull();
+
+    // And a genuine payment afterwards still confirms.
+    await adapter.transferSats({ from: "demoPayer", toOwner: merchant.owner, amountSats: 50_000n });
+    const proof = await adapter.detectInvoicePayment(invoice);
+    expect(proof).not.toBeNull();
+    expect(proof!.amountSats).toBe(50_000n);
+  });
+
+  it("prefers an exact-amount VTXO over a larger one, so change never outranks a real payment", async () => {
+    const adapter = new TachiAdapter(fixtureOptions);
+    await adapter.onboard("merchant", 500_000n);
+    await adapter.onboard("demoPayer", 500_000n);
+    await adapter.onboard("cold", 500_000n);
+    const merchant = await adapter.targetFor("merchant");
+    const cold = await adapter.targetFor("cold");
+    const baseline = (await adapter.getAddressVtxos(merchant.owner)).map((v) => v.vtxoId);
+    const invoice = { id: "inv-exact", amountSats: 50_000n, paymentTarget: merchant, baselineVtxoIds: baseline };
+
+    // An overpayment lands first (60,000), then the exact invoice amount (50,000).
+    await adapter.transferSats({ from: "cold", toOwner: merchant.owner, amountSats: 60_000n });
+    await adapter.transferSats({ from: "demoPayer", toOwner: merchant.owner, amountSats: 50_000n });
+
+    const proof = await adapter.detectInvoicePayment(invoice);
+    expect(proof?.amountSats).toBe(50_000n);
+  });
+
   it("refunds back to the payer's key and refuses when the payer is unknown", async () => {
     const adapter = new TachiAdapter(fixtureOptions);
     await adapter.onboard("merchant", 500_000n);

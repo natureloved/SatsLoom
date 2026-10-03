@@ -86,7 +86,11 @@ Every box links to the code that implements it.
 
 ### Proof, not claims
 
-- 69 tests pass, including a full `invoice → pay → confirm → proof → refund → payout` loop
+- **`npm run clickpath`** drives the whole judge path over HTTP and prints a pass/fail line per
+  step — 34 checks covering the invoice, the payment, the proof link, the webhook, the fallback,
+  the refund and both payouts. It exits non-zero on any failure, so "the deployed demo works" is a
+  command, not a claim. Run it twice in a row; that is the shipping bar.
+- 83 tests pass, including a full `invoice → pay → confirm → proof → refund → payout` loop
   ([`apps/api/src/server.test.ts`](apps/api/src/server.test.ts)) and the cryptography that moves money
   ([`adapter.test.ts`](packages/tachi-adapter/src/adapter.test.ts)).
 - Every settlement, refund and payout renders an explorer URL. The URL is derived from the
@@ -120,6 +124,8 @@ status flips `pending → confirmed` with an explorer link → **Refund** or **S
 
 ## Judge click-path
 
+Automated as `npm run clickpath` (34 checks, exits non-zero on failure). By hand:
+
 1. Open the dashboard — daemon pill is green (or blue for fixture), balances visible.
 2. Create an invoice (50,000 sats, memo `Demo order #1`) → the pay page opens with a QR and countdown.
 3. Click **Pay with demo wallet** — a real off-chain VTXO transfer from a second funded account.
@@ -129,6 +135,18 @@ status flips `pending → confirmed` with an explorer link → **Refund** or **S
    → auto-fallback** re-settles on the runner-up and publishes the new reason and the decision log entry.
 6. **Refund** the invoice, then **Sweep** to the cold Taproot address — both return a txid and an
    explorer link.
+
+### Two bugs this path caught, and what they were
+
+- **A false confirmation.** The merchant's own payout left change at its vault address; detection
+  saw "a new VTXO at least as large as the invoice" and confirmed the invoice. The customer had not
+  paid. Detection now excludes outputs this process created for itself, prefers an exact-amount
+  match, and refuses to credit one ledger output to two invoices. Regression tests:
+  [`adapter.test.ts`](packages/tachi-adapter/src/adapter.test.ts) and
+  [`server.test.ts`](apps/api/src/server.test.ts).
+- **A lying status pill.** Every 4xx reply was stamped `mode: "degraded"`, so a validation error
+  turned the daemon indicator amber while the daemon was healthy. The pill now always reports the
+  daemon's real state.
 
 ## The embed button (e-commerce plugin)
 
