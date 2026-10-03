@@ -1,2 +1,127 @@
-import React,{useState} from "react"; import {createRoot} from "react-dom/client"; import "./style.css";
-function App(){const [amount,setAmount]=useState("50000"),[invoice,setInvoice]=useState<any>(); const [routes,setRoutes]=useState<any>(); const [settlement,setSettlement]=useState<any>(); const api=async(path:string,init?:any)=>{const r=await fetch(`http://localhost:3001${path}`,{headers:{"content-type":"application/json"},...init}); return (await r.json()).data}; const create=async()=>{const i=await api("/api/invoices",{method:"POST",body:JSON.stringify({amountSats:amount})});setInvoice(i);setRoutes(await api(`/api/invoices/${i.id}/routes`));}; return <main><header><h1>SatsLoom</h1><span>Merchant settlement router</span><b>DEGRADED / SIMULATION</b></header><section><h2>Create invoice</h2><input value={amount} onChange={e=>setAmount(e.target.value)}/><button onClick={create}>Create invoice</button>{invoice&&<><p>Invoice {invoice.id} · {invoice.amountSats} sats · {invoice.status}</p><button onClick={async()=>{await api(`/api/invoices/${invoice.id}/simulate-payment`,{method:"POST"});setRoutes(await api(`/api/invoices/${invoice.id}/routes`));}}>Simulate payment</button><button onClick={async()=>{await api(`/api/invoices/${invoice.id}/select-route`,{method:"POST"});setSettlement(await api(`/api/invoices/${invoice.id}/settlement`));}}>Select route</button><button onClick={async()=>{await api(`/api/invoices/${invoice.id}/invalidate-best-route`,{method:"POST"});await api(`/api/invoices/${invoice.id}/settle`,{method:"POST"});setSettlement(await api(`/api/invoices/${invoice.id}/settlement`));}}>Invalidate and settle</button></>}{routes&&<table><tbody>{routes.routes.map((r:any)=><tr key={r.id}><td>{r.source}</td><td>{r.feeSats} sats</td><td>{r.estimatedSettlementSeconds}s</td><td>{r.capacitySats}</td><td>{r.simulation?"Simulation":"Live"}</td></tr>)}</tbody></table>}{settlement&&<pre>{JSON.stringify(settlement,null,2)}</pre>}</section></main>} createRoot(document.getElementById("root")!).render(<App/>);
+/**
+ * SatsLoom web entry point.
+ *
+ * A ~40-line hash router rather than a routing dependency: the app has five screens, and a hash
+ * route keeps the pay page deep-linkable from a QR code or an embedded button without any
+ * server-side rewrite rules.
+ */
+import { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import "./style.css";
+import { Dashboard, PayPage, PluginPage, RoutesPage, SettingsPage } from "./pages";
+import { ModePill } from "./ui";
+import { api, type Envelope } from "./api";
+
+function useHashRoute(): { route: string; path: string[] } {
+  const [hash, setHash] = useState(() => window.location.hash || "#/");
+  useEffect(() => {
+    const onChange = () => setHash(window.location.hash || "#/");
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+  const path = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  return { route: path[0] ?? "", path };
+}
+
+function navigate(to: string) {
+  window.location.hash = to.startsWith("#") ? to : `#${to}`;
+}
+
+const TABS: { route: string; label: string }[] = [
+  { route: "", label: "Dashboard" },
+  { route: "routes", label: "Liquidity" },
+  { route: "settings", label: "Policy & daemon" },
+  { route: "plugin", label: "Plugin" },
+];
+
+export function App() {
+  const { route, path } = useHashRoute();
+  const [status, setStatus] = useState<Envelope<{ mode: string }> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      api
+        .get<{ mode: string }>("/api/tachi/status")
+        .then((response) => !cancelled && setStatus(response))
+        .catch(() => !cancelled && setStatus(null));
+    void load();
+    const timer = setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  // The pay page is a standalone surface: no navigation, because the customer is not the merchant.
+  if (route === "pay") {
+    return (
+      <div className="shell" style={{ maxWidth: 560 }}>
+        <header className="topbar" style={{ justifyContent: "center" }}>
+          <div className="brand">
+            <h1>
+              Sats<span className="loom">Loom</span>
+            </h1>
+            <span className="tag">merchant settlement router</span>
+          </div>
+        </header>
+        <PayPage id={path[1] ?? ""} />
+      </div>
+    );
+  }
+
+  const mode = status?.mode ?? status?.data?.mode ?? "degraded";
+
+  return (
+    <div className="shell">
+      <header className="topbar">
+        <div className="brand">
+          <h1>
+            Sats<span className="loom">Loom</span>
+          </h1>
+          <span className="tag">merchant settlement router · Tachi</span>
+        </div>
+        <nav className="tabs">
+          {TABS.map((tab) => (
+            <a key={tab.route} href={`#/${tab.route}`} className={route === tab.route ? "active" : ""}>
+              {tab.label}
+            </a>
+          ))}
+        </nav>
+        <ModePill mode={mode} />
+      </header>
+
+      {route === "" && <Dashboard navigate={navigate} />}
+      {route === "routes" && <RoutesPage />}
+      {route === "settings" && <SettingsPage />}
+      {route === "plugin" && <PluginPage />}
+      {!["", "routes", "settings", "plugin"].includes(route) && (
+        <div className="banner amber">
+          <strong>404</strong>
+          <span>
+            No such screen. <a href="#/">Back to the dashboard</a>.
+          </span>
+        </div>
+      )}
+
+      <footer className="mt" style={{ marginTop: 40, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+        <div className="spread">
+          <span className="tiny dim">
+            SatsLoom · built for the Tachi OP_Freedom Hackathon — Bounty #11 (Merchant Payments) + Bounty #10 (Liquidity Management)
+          </span>
+          <a className="tiny dim" href="/api/tachi/capabilities" target="_blank" rel="noreferrer">
+            capability probe ↗
+          </a>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/**
+ * Boot the app. Guarded on the host element existing so this module can be imported by tests
+ * (and by any future embed surface) without side effects — a bare `createRoot(...)!` here would
+ * run at import time and crash every non-browser consumer.
+ */
+const rootElement = document.getElementById("root");
+if (rootElement) createRoot(rootElement).render(<App />);

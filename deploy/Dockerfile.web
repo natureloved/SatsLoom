@@ -1,0 +1,27 @@
+# SatsLoom web. Builds the SPA, then serves it from nginx with /api proxied to the API container
+# so the browser only ever makes same-origin requests.
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+COPY packages/router/package.json packages/router/
+COPY packages/tachi-adapter/package.json packages/tachi-adapter/
+COPY apps/api/package.json apps/api/
+RUN npm install --ignore-scripts
+COPY tsconfig.json ./
+COPY apps/web apps/web
+COPY packages/shared packages/shared
+ARG VITE_API_URL=""
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm --workspace @satsloom/web run build
+
+FROM nginx:1.27-alpine
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+# The official nginx image envsubst's files in /etc/nginx/templates at startup, substituting only
+# variables that exist in the environment — so ${API_UPSTREAM} is replaced while nginx's own
+# $host / $remote_addr stay intact.
+COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
+ENV API_UPSTREAM=api:3001
+EXPOSE 80
+HEALTHCHECK --interval=30s --timeout=4s CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1

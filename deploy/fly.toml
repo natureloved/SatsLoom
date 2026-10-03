@@ -1,0 +1,39 @@
+# Fly.io deployment for the API. `fly launch --copy-config` then `fly secrets set ...`:
+#
+#   fly secrets set MERCHANT_MNEMONIC="…" DEMO_PAYER_MNEMONIC="…" COLD_MNEMONIC="…"
+#   fly secrets set TACHI_PROVIDER=live CORS_ORIGINS="https://your-web.vercel.app"
+#   fly deploy --config deploy/fly.toml
+#
+# The web app is deployed separately (Vercel); set VITE_API_URL to this app's URL at build time.
+app = "satsloom-api"
+primary_region = "sin"
+
+[build]
+  dockerfile = "deploy/Dockerfile.api"
+
+[env]
+  PORT = "3001"
+  HOST = "0.0.0.0"
+  TACHI_NETWORK = "regtest"
+  TACHI_DAEMON_URL = "https://rpc-regtest.tachibtc.com"
+  TACHI_EXPLORER_URL = "https://explorer-regtest.tachibtc.com"
+  ENABLE_DEMO_ROUTES = "true"
+  LOG_LEVEL = "info"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "20s"
+  method = "GET"
+  path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -2,7 +2,32 @@
   "name": "satsloom",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/*", "packages/*"],
-  "scripts": {"spike:tachi": "tsx scripts/spike-tachi.ts", "test": "vitest run"},
-  "devDependencies": {"tsx": "^4.19.0", "typescript": "^5.6.3", "vitest": "^2.1.8"}
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev:api": "npm --workspace @satsloom/api run dev",
+    "dev:web": "npm --workspace @satsloom/web run dev",
+    "build": "npm --workspace @satsloom/web run build",
+    "start": "npm --workspace @satsloom/api run start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
+    "spike:tachi": "tsx scripts/spike-tachi.ts",
+    "preflight": "tsx scripts/preflight.ts",
+    "fund:demo": "tsx scripts/fund-demo.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "npm-run-all": "^4.1.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
 }

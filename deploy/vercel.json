@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm --workspace @satsloom/web run build",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "npm install --ignore-scripts",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://satsloom-api.fly.dev/api/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/embed.js",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Cache-Control", "value": "public, max-age=300" }
+      ]
+    }
+  ]
+}

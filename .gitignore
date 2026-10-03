@@ -1,4 +1,14 @@
 node_modules
 dist
 .env
+.env.*
+!.env.example
 *.db
+*.log
+
+# Generated receipts from `npm run spike:tachi -- --write`. Regenerate on the machine that can
+# reach the daemon, rather than committing a stale one.
+docs/spike-latest.json
+
+# Local scratch space — probe scripts, one-off debug files.
+scratch/

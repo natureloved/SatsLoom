@@ -1,0 +1,35 @@
+# One command brings up the whole demo:
+#
+#   cp .env.example .env      # then set TACHI_PROVIDER (fixture for an offline demo, live for regtest)
+#   docker compose -f deploy/docker-compose.yml up --build
+#
+# The web app is then on http://localhost:8080 and proxies /api to the api container.
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    env_file:
+      - ../.env
+    environment:
+      PORT: "3001"
+      HOST: 0.0.0.0
+      CORS_ORIGINS: "*"
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        # Empty means "same origin": the nginx proxy below handles /api.
+        VITE_API_URL: ""
+    environment:
+      API_UPSTREAM: api:3001
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped

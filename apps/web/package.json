@@ -1,1 +1,26 @@
-{"name":"@satsloom/web","version":"0.1.0","private":true,"scripts":{"dev":"vite"},"dependencies":{"@vitejs/plugin-react":"latest","vite":"latest","typescript":"^5.6.3","react":"latest","react-dom":"latest"},"devDependencies":{}}
+{
+  "name": "@satsloom/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@satsloom/shared": "0.1.0",
+    "@types/qrcode": "^1.5.6",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "happy-dom": "^20.14.5",
+    "vite": "^5.4.11"
+  }
+}

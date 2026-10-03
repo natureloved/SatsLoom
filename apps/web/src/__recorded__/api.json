@@ -1,0 +1,601 @@
+{
+  "invoiceId": "3fec3dff-a538-4363-81b5-c02feea24074",
+  "responses": {
+    "/api/tachi/status": {
+      "status": 200,
+      "body": {
+        "requestId": "req-d",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "mode": "fixture",
+          "checkedAt": "2026-10-03T10:40:08.676Z",
+          "detail": "7 validators · height 104 · synced"
+        }
+      }
+    },
+    "/api/invoices": {
+      "status": 200,
+      "body": {
+        "requestId": "req-e",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": [
+          {
+            "id": "3fec3dff-a538-4363-81b5-c02feea24074",
+            "amountSats": "50000",
+            "memo": "Demo order #1",
+            "status": "created",
+            "createdAt": "2026-10-03T10:40:11.388Z",
+            "expiresAt": "2026-10-03T10:55:11.388Z",
+            "paymentTarget": {
+              "owner": "e7ab2537b5d49e970309aae06e9e49f36ce1c9febbd44ec8e0d1cca0b4f9c319",
+              "address": "bcrt1pjemznfjqvu20h55d45lwv9km4npv4uwha7q2heaza67eck8chudsna5v8x",
+              "vaultAddress": "bcrt1pjemznfjqvu20h55d45lwv9km4npv4uwha7q2heaza67eck8chudsna5v8x",
+              "fundingAddress": "bcrt1q6rz28mcfaxtmd6v789l9rrlrusdprr9pz3cppk",
+              "csvBlocks": 1008
+            },
+            "baselineVtxoIds": [
+              "35d450fafea94f8587c5f055063b77873b377f904630bb4cfeb9d39b265d9e24",
+              "ee3dddc8add505303f4cc9da8655fa7fdde98cd200edec3d787660bb963f3602"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/invoices/3fec3dff-a538-4363-81b5-c02feea24074": {
+      "status": 200,
+      "body": {
+        "requestId": "req-f",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "quote": {
+          "invoiceId": "3fec3dff-a538-4363-81b5-c02feea24074",
+          "routes": [
+            {
+              "id": "vtxo-self",
+              "source": "vtxo",
+              "provider": "Own VTXO balance",
+              "capacitySats": "969998",
+              "feeSats": "1",
+              "estimatedSettlementSeconds": 15,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "none",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "simulation": false
+            },
+            {
+              "id": "quorum-cooperative",
+              "source": "liquidity_provider",
+              "provider": "Quorum cooperative settlement",
+              "capacitySats": "3879992",
+              "feeSats": "4",
+              "estimatedSettlementSeconds": 45,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "low",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "simulation": false
+            },
+            {
+              "id": "onchain-redemption",
+              "source": "onchain_redemption",
+              "provider": "On-chain unilateral exit",
+              "capacitySats": "500000",
+              "feeSats": "1",
+              "estimatedSettlementSeconds": 600,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "high",
+              "timelockBlocks": 1008,
+              "available": true,
+              "requiresCooperativeSigning": false,
+              "simulation": false
+            }
+          ],
+          "quotedAt": "2026-10-03T10:40:11.388Z",
+          "quoteExpiresAt": "2026-10-03T10:42:11.388Z"
+        },
+        "decision": null,
+        "settlement": null,
+        "refunds": [],
+        "data": {
+          "id": "3fec3dff-a538-4363-81b5-c02feea24074",
+          "amountSats": "50000",
+          "memo": "Demo order #1",
+          "status": "created",
+          "createdAt": "2026-10-03T10:40:11.388Z",
+          "expiresAt": "2026-10-03T10:55:11.388Z",
+          "paymentTarget": {
+            "owner": "e7ab2537b5d49e970309aae06e9e49f36ce1c9febbd44ec8e0d1cca0b4f9c319",
+            "address": "bcrt1pjemznfjqvu20h55d45lwv9km4npv4uwha7q2heaza67eck8chudsna5v8x",
+            "vaultAddress": "bcrt1pjemznfjqvu20h55d45lwv9km4npv4uwha7q2heaza67eck8chudsna5v8x",
+            "fundingAddress": "bcrt1q6rz28mcfaxtmd6v789l9rrlrusdprr9pz3cppk",
+            "csvBlocks": 1008
+          },
+          "baselineVtxoIds": [
+            "35d450fafea94f8587c5f055063b77873b377f904630bb4cfeb9d39b265d9e24",
+            "ee3dddc8add505303f4cc9da8655fa7fdde98cd200edec3d787660bb963f3602"
+          ]
+        }
+      }
+    },
+    "/api/invoices/3fec3dff-a538-4363-81b5-c02feea24074/routes": {
+      "status": 200,
+      "body": {
+        "requestId": "req-g",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "evaluations": [
+          {
+            "route": {
+              "id": "vtxo-self",
+              "source": "vtxo",
+              "provider": "Own VTXO balance",
+              "capacitySats": "969998",
+              "feeSats": "1",
+              "estimatedSettlementSeconds": 15,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "none",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "simulation": false
+            },
+            "score": 0.014105,
+            "rank": 1,
+            "eligible": true,
+            "explanation": "Selected the Own VTXO balance route: 1 sats fee, 15s estimated settlement, none exit risk, 969998 sats capacity. It is valid under policy (max 1000 sats / 600s) and covers the 50000 sat invoice. Against the runner-up (quorum-cooperative) it is 30s faster and 3 sats cheaper.",
+            "timelock": {
+              "friendly": "instant",
+              "advanced": "cooperative, no CSV · 15s estimate"
+            },
+            "feeBps": 0
+          },
+          {
+            "route": {
+              "id": "quorum-cooperative",
+              "source": "liquidity_provider",
+              "provider": "Quorum cooperative settlement",
+              "capacitySats": "3879992",
+              "feeSats": "4",
+              "estimatedSettlementSeconds": 45,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "low",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "simulation": false
+            },
+            "score": 0.145005,
+            "rank": 2,
+            "eligible": true,
+            "explanation": "Selected the Quorum cooperative settlement route: 4 sats fee, 45s estimated settlement, low exit risk, 3879992 sats capacity. It is valid under policy (max 1000 sats / 600s) and covers the 50000 sat invoice. Against the runner-up (onchain-redemption) it is 555s faster.",
+            "timelock": {
+              "friendly": "instant",
+              "advanced": "cooperative, no CSV · 45s estimate"
+            },
+            "feeBps": 1
+          },
+          {
+            "route": {
+              "id": "onchain-redemption",
+              "source": "onchain_redemption",
+              "provider": "On-chain unilateral exit",
+              "capacitySats": "500000",
+              "feeSats": "1",
+              "estimatedSettlementSeconds": 600,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "high",
+              "timelockBlocks": 1008,
+              "available": true,
+              "requiresCooperativeSigning": false,
+              "simulation": false
+            },
+            "score": 0.7102,
+            "rank": 3,
+            "eligible": true,
+            "explanation": "Selected the On-chain unilateral exit route: 1 sats fee, 600s estimated settlement, high exit risk, 500000 sats capacity. It is valid under policy (max 1000 sats / 600s) and covers the 50000 sat invoice.",
+            "timelock": {
+              "friendly": "~10 min (after a ~7 d CSV)",
+              "advanced": "BIP-68 relative timelock: 1008 blocks (~~7 d)"
+            },
+            "feeBps": 0
+          }
+        ],
+        "fresh": true,
+        "data": {
+          "invoiceId": "3fec3dff-a538-4363-81b5-c02feea24074",
+          "routes": [
+            {
+              "id": "vtxo-self",
+              "source": "vtxo",
+              "provider": "Own VTXO balance",
+              "capacitySats": "969998",
+              "feeSats": "1",
+              "estimatedSettlementSeconds": 15,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "none",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "simulation": false
+            },
+            {
+              "id": "quorum-cooperative",
+              "source": "liquidity_provider",
+              "provider": "Quorum cooperative settlement",
+              "capacitySats": "3879992",
+              "feeSats": "4",
+              "estimatedSettlementSeconds": 45,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "low",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "simulation": false
+            },
+            {
+              "id": "onchain-redemption",
+              "source": "onchain_redemption",
+              "provider": "On-chain unilateral exit",
+              "capacitySats": "500000",
+              "feeSats": "1",
+              "estimatedSettlementSeconds": 600,
+              "expiresAt": "2026-10-03T10:42:11.388Z",
+              "exitRisk": "high",
+              "timelockBlocks": 1008,
+              "available": true,
+              "requiresCooperativeSigning": false,
+              "simulation": false
+            }
+          ],
+          "quotedAt": "2026-10-03T10:40:11.388Z",
+          "quoteExpiresAt": "2026-10-03T10:42:11.388Z"
+        }
+      }
+    },
+    "/api/routes/liquidity": {
+      "status": 200,
+      "body": {
+        "requestId": "req-h",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": {
+          "providers": [
+            {
+              "id": "vtxo-self",
+              "name": "Own VTXO balance",
+              "kind": "self_custody",
+              "capacitySats": "969998",
+              "feeSats": "1",
+              "feeBps": 0,
+              "latencySeconds": 15,
+              "exitRisk": "none",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "status": "live",
+              "lastCheckedAt": "2026-10-03T10:40:11.467Z",
+              "detail": "969998 sats spendable now, settled by the quorum inside one epoch",
+              "timelock": {
+                "friendly": "instant",
+                "advanced": "cooperative, no CSV · 15s estimate"
+              }
+            },
+            {
+              "id": "quorum-cooperative",
+              "name": "Quorum cooperative settlement",
+              "kind": "liquidity_provider",
+              "capacitySats": "3879992",
+              "feeSats": "4",
+              "feeBps": 0,
+              "latencySeconds": 45,
+              "exitRisk": "low",
+              "available": true,
+              "requiresCooperativeSigning": true,
+              "status": "live",
+              "lastCheckedAt": "2026-10-03T10:40:11.467Z",
+              "detail": "5-of-7 quorum co-signs; needs a responsive validator set",
+              "timelock": {
+                "friendly": "instant",
+                "advanced": "cooperative, no CSV · 45s estimate"
+              }
+            },
+            {
+              "id": "onchain-redemption",
+              "name": "On-chain unilateral exit",
+              "kind": "onchain_redemption",
+              "capacitySats": "500000",
+              "feeSats": "1",
+              "feeBps": 0,
+              "latencySeconds": 600,
+              "exitRisk": "high",
+              "available": true,
+              "requiresCooperativeSigning": false,
+              "timelockBlocks": 1008,
+              "status": "live",
+              "lastCheckedAt": "2026-10-03T10:40:11.467Z",
+              "detail": "CSV-gated exit through the node's Bitcoin RPC proxy; unlockable ~7 d after the exit broadcast",
+              "timelock": {
+                "friendly": "~10 min (after a ~7 d CSV)",
+                "advanced": "BIP-68 relative timelock: 1008 blocks (~~7 d)"
+              }
+            }
+          ],
+          "policy": {
+            "maxFeeSats": "1000",
+            "maxSettlementSeconds": 600,
+            "feeWeight": 0.2,
+            "latencyWeight": 0.35,
+            "exitRiskWeight": 0.35,
+            "liquidityPenalty": 0.1
+          },
+          "decisionLog": []
+        }
+      }
+    },
+    "/api/dashboard/summary": {
+      "status": 200,
+      "body": {
+        "requestId": "req-i",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": {
+          "mode": "fixture",
+          "counts": {
+            "created": 1,
+            "pending": 0,
+            "confirmed": 0,
+            "expired": 0,
+            "refunded": 0,
+            "failed": 0
+          },
+          "totals": {
+            "invoicedSats": "50000",
+            "confirmedSats": "0",
+            "refundedSats": "0",
+            "paidOutSats": "30000"
+          },
+          "balance": {
+            "offchainSats": "969998",
+            "onchainSats": "500000",
+            "pendingSats": "0"
+          },
+          "payoutAddress": null,
+          "recentActivity": [
+            {
+              "id": "69cebe72-9752-4a84-9c74-0190f323466d",
+              "at": "2026-10-03T10:40:11.389Z",
+              "kind": "invoice.created",
+              "message": "Invoice for 50000 sats created",
+              "invoiceId": "3fec3dff-a538-4363-81b5-c02feea24074",
+              "mode": "fixture"
+            },
+            {
+              "id": "7dd32794-2dbd-467e-ae42-8b6851cd4136",
+              "at": "2026-10-03T10:36:54.115Z",
+              "kind": "payout.settled",
+              "message": "Paid out 5000 sats on the ledger",
+              "txid": "a56bdb505a821385efdf444a14b5de65174a0cbd3d7b8265c63e24e50a3d7da8",
+              "explorerUrl": "https://explorer-regtest.tachibtc.com/tx/a56bdb505a821385efdf444a14b5de65174a0cbd3d7b8265c63e24e50a3d7da8",
+              "mode": "fixture"
+            },
+            {
+              "id": "e0b36a72-6585-4283-84e8-b1e408727924",
+              "at": "2026-10-03T10:36:54.067Z",
+              "kind": "payout.settled",
+              "message": "Swept 25000 sats to L1 bcrt1pazy95k5u…",
+              "txid": "7a4c42143d8c60f832ad65e83053c43fbcbf09839829340994764e572789d40a",
+              "explorerUrl": "https://explorer-regtest.tachibtc.com/tx/7a4c42143d8c60f832ad65e83053c43fbcbf09839829340994764e572789d40a",
+              "mode": "fixture"
+            },
+            {
+              "id": "1109832b-f915-4e4d-a714-70953cd75228",
+              "at": "2026-10-03T10:36:53.967Z",
+              "kind": "daemon.status",
+              "message": "Onboarded 500000 sats onto the ledger (faucet fixturefauce…)",
+              "txid": "8d7130851997a28d550aca904f595518c45bccf9d0504ae75d58d807a1562a4d",
+              "explorerUrl": "https://explorer-regtest.tachibtc.com/tx/8d7130851997a28d550aca904f595518c45bccf9d0504ae75d58d807a1562a4d",
+              "mode": "fixture"
+            }
+          ]
+        }
+      }
+    },
+    "/api/webhooks/deliveries": {
+      "status": 200,
+      "body": {
+        "requestId": "req-j",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": []
+      }
+    },
+    "/api/policy": {
+      "status": 200,
+      "body": {
+        "requestId": "req-k",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": {
+          "maxFeeSats": "1000",
+          "maxSettlementSeconds": 600,
+          "feeWeight": 0.2,
+          "latencyWeight": 0.35,
+          "exitRiskWeight": 0.35,
+          "liquidityPenalty": 0.1
+        }
+      }
+    },
+    "/api/pay/3fec3dff-a538-4363-81b5-c02feea24074": {
+      "status": 200,
+      "body": {
+        "requestId": "req-l",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": {
+          "id": "3fec3dff-a538-4363-81b5-c02feea24074",
+          "amountSats": "50000",
+          "memo": "Demo order #1",
+          "status": "created",
+          "createdAt": "2026-10-03T10:40:11.388Z",
+          "expiresAt": "2026-10-03T10:55:11.388Z",
+          "paymentTarget": {
+            "owner": "e7ab2537b5d49e970309aae06e9e49f36ce1c9febbd44ec8e0d1cca0b4f9c319",
+            "address": "bcrt1pjemznfjqvu20h55d45lwv9km4npv4uwha7q2heaza67eck8chudsna5v8x",
+            "vaultAddress": "bcrt1pjemznfjqvu20h55d45lwv9km4npv4uwha7q2heaza67eck8chudsna5v8x",
+            "fundingAddress": "bcrt1q6rz28mcfaxtmd6v789l9rrlrusdprr9pz3cppk",
+            "csvBlocks": 1008
+          },
+          "proof": null
+        }
+      }
+    },
+    "/api/pay/3fec3dff-a538-4363-81b5-c02feea24074/status": {
+      "status": 200,
+      "body": {
+        "requestId": "req-m",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": {
+          "id": "3fec3dff-a538-4363-81b5-c02feea24074",
+          "status": "created",
+          "proof": null,
+          "expiresAt": "2026-10-03T10:55:11.388Z"
+        }
+      }
+    },
+    "/api/tachi/capabilities": {
+      "status": 200,
+      "body": {
+        "requestId": "req-n",
+        "mode": "fixture",
+        "daemon": {
+          "reachable": true,
+          "network": "regtest",
+          "version": "0.2.1-fixture",
+          "detail": "7 validators · height 104 · synced",
+          "checkedAt": "2026-10-03T10:40:08.676Z"
+        },
+        "data": {
+          "mode": "fixture",
+          "daemon": {
+            "baseUrl": "fixture://in-process",
+            "reachable": true
+          },
+          "capabilities": [
+            {
+              "id": "daemon-reachable",
+              "label": "Daemon reachable",
+              "ok": true,
+              "mode": "fixture",
+              "detail": "status=ok validators=7"
+            },
+            {
+              "id": "validators",
+              "label": "Validator registry readable",
+              "ok": true,
+              "mode": "fixture",
+              "detail": "7 validators, 7 online"
+            },
+            {
+              "id": "vault-derivation",
+              "label": "Vault address derives from live quorum",
+              "ok": true,
+              "mode": "fixture",
+              "detail": "e7ab2537b5d4… → bcrt1pjemznfjqvu20h55d45lwv9km4npv4uwha7q2heaza67eck8chudsna5v8x"
+            },
+            {
+              "id": "vtxo-query",
+              "label": "VTXO balance query",
+              "ok": true,
+              "mode": "fixture",
+              "detail": "2 VTXOs for e7ab2537b5d4…"
+            },
+            {
+              "id": "ledger-signing",
+              "label": "Ledger transaction signing (local)",
+              "ok": true,
+              "mode": "fixture",
+              "detail": "schnorr signer ready for e7ab2537b5d4…"
+            },
+            {
+              "id": "explorer-link",
+              "label": "Explorer URL shape",
+              "ok": true,
+              "mode": "fixture",
+              "detail": "https://explorer-regtest.tachibtc.com/tx/0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            {
+              "id": "bitcoin-rpc",
+              "label": "Node Bitcoin RPC proxy",
+              "ok": true,
+              "mode": "fixture",
+              "detail": "chain=regtest"
+            }
+          ],
+          "checkedAt": "2026-10-03T10:40:11.478Z"
+        }
+      }
+    }
+  }
+}
