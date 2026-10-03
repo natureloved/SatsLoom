@@ -77,6 +77,18 @@ async function main() {
     results.push({ role, address: target.address, before, after, txid: onboard.txid });
   }
 
+  // The sweep destination has to be known before recording, or the payout beat falls back to a
+  // derived address and the runbook has to explain itself twice.
+  if (adapter.hasIdentity("cold")) {
+    try {
+      const cold = await adapter.targetFor("cold");
+      console.log(`\n  Cold storage (paste into PAYOUT_ADDRESS for the sweep demo)`);
+      console.log(`    ${cold.address}`);
+    } catch (error) {
+      console.log(`\n  Could not derive the cold address: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   console.log(`\n  Summary`);
   for (const result of results) {
     const delta = result.after - result.before;

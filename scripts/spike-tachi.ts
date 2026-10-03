@@ -15,7 +15,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { TachiAdapter, ROLES, isAdapterError } from "@satsloom/tachi-adapter";
-import { describeTimelock } from "@satsloom/shared";
+import { describeTimelock, loadDotEnv } from "@satsloom/shared";
 
 loadDotEnv();
 
