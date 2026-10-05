@@ -1,1 +1,17 @@
-{"name":"@satsloom/api","version":"0.1.0","type":"module","scripts":{"dev":"tsx src/server.ts"},"dependencies":{"@satsloom/router":"0.1.0","@satsloom/shared":"0.1.0","@satsloom/tachi-adapter":"0.1.0","fastify":"^5.1.0"}}
+{
+  "name": "@satsloom/api",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'Ready'",
+    "start": "node --experimental-strip-types src/server.ts",
+    "dev": "node --experimental-strip-types src/server.ts"
+  },
+  "dependencies": {
+    "@satsloom/domain": "*",
+    "@satsloom/router": "0.1.0",
+    "@satsloom/shared": "0.1.0",
+    "@satsloom/tachi-adapter": "0.1.0",
+    "fastify": "^5.1.0"
+  }
+}

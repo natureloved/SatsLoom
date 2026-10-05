@@ -1,0 +1,393 @@
+{
+  "aggregates": {
+    "0ab8a0b1-ecd2-4b6a-97ba-42838b75d219": {
+      "invoice": {
+        "id": "0ab8a0b1-ecd2-4b6a-97ba-42838b75d219",
+        "amountSats": "50000",
+        "memo": "SatsLoom demo payment",
+        "status": "confirmed",
+        "createdAt": "2026-10-04T18:30:49.202Z",
+        "expiresAt": "2026-10-04T18:45:49.202Z"
+      },
+      "lifecycle": "SETTLED",
+      "executionStarted": true,
+      "fallbackHistory": [],
+      "decision": {
+        "invoiceId": "0ab8a0b1-ecd2-4b6a-97ba-42838b75d219",
+        "selectedRouteId": "lp-standard",
+        "scoringInputs": {
+          "feeSats": "250",
+          "settlementSeconds": 45,
+          "exitRiskWeight": 1,
+          "liquidityAvailable": "250000",
+          "expirySecondsRemaining": 575
+        },
+        "reason": "Selected liquidity_provider route because it was valid, had sufficient capacity, low exit risk, and settled 555 seconds faster than the next available route.",
+        "decidedAt": "2026-10-04T18:31:14.156Z"
+      },
+      "settlement": {
+        "id": "303c0290-339a-45bf-b917-9d22917f5d8a",
+        "invoiceId": "0ab8a0b1-ecd2-4b6a-97ba-42838b75d219",
+        "routeId": "lp-standard",
+        "status": "settled",
+        "simulation": true,
+        "txid": "sim-lp-standard-0ab8a0b1"
+      }
+    },
+    "995a4b38-0cc6-4747-960e-bf1290296080": {
+      "invoice": {
+        "id": "995a4b38-0cc6-4747-960e-bf1290296080",
+        "amountSats": "50",
+        "memo": "x402 Autonomous Agent Compute Access (50 sats)",
+        "status": "confirmed",
+        "createdAt": "2026-10-04T18:31:43.029Z",
+        "expiresAt": "2026-10-04T18:46:43.029Z"
+      },
+      "lifecycle": "SETTLED",
+      "executionStarted": true,
+      "fallbackHistory": [],
+      "decision": {
+        "invoiceId": "995a4b38-0cc6-4747-960e-bf1290296080",
+        "selectedRouteId": "vtxo-fast",
+        "scoringInputs": {
+          "feeSats": "50",
+          "settlementSeconds": 18,
+          "exitRiskWeight": 0,
+          "liquidityAvailable": "100000",
+          "expirySecondsRemaining": 598
+        },
+        "reason": "Selected vtxo route because it was valid, had sufficient capacity, zero exit risk, and settled 27 seconds faster than the next available route.",
+        "decidedAt": "2026-10-04T18:31:44.278Z"
+      },
+      "settlement": {
+        "id": "2d9e645b-2df7-4871-9d78-c9fad0d0b061",
+        "invoiceId": "995a4b38-0cc6-4747-960e-bf1290296080",
+        "routeId": "vtxo-fast",
+        "status": "settled",
+        "simulation": true,
+        "txid": "x402-vtxo-fast-995a4b38"
+      }
+    },
+    "4a572840-7a8a-4dfb-bf58-124a18132a2f": {
+      "invoice": {
+        "id": "4a572840-7a8a-4dfb-bf58-124a18132a2f",
+        "amountSats": "50000",
+        "memo": "SatsLoom demo payment",
+        "status": "pending",
+        "createdAt": "2026-10-04T20:03:06.210Z",
+        "expiresAt": "2026-10-04T20:18:06.210Z"
+      },
+      "lifecycle": "QUOTED",
+      "executionStarted": false,
+      "fallbackHistory": []
+    },
+    "0c6b1707-3c9c-4119-a8a2-6f51c159dbce": {
+      "invoice": {
+        "id": "0c6b1707-3c9c-4119-a8a2-6f51c159dbce",
+        "amountSats": "50000",
+        "memo": "SatsLoom demo payment",
+        "status": "confirmed",
+        "createdAt": "2026-10-04T22:35:49.329Z",
+        "expiresAt": "2026-10-04T22:50:49.329Z"
+      },
+      "lifecycle": "PAYMENT_CONFIRMED",
+      "executionStarted": false,
+      "fallbackHistory": []
+    },
+    "8d10460c-5d0a-4d4d-9593-1df7d0f671a6": {
+      "invoice": {
+        "id": "8d10460c-5d0a-4d4d-9593-1df7d0f671a6",
+        "amountSats": "50",
+        "memo": "x402 Autonomous Agent Compute Access (50 sats)",
+        "status": "confirmed",
+        "createdAt": "2026-10-04T22:36:37.737Z",
+        "expiresAt": "2026-10-04T22:51:37.737Z"
+      },
+      "lifecycle": "SETTLED",
+      "executionStarted": true,
+      "fallbackHistory": [],
+      "decision": {
+        "invoiceId": "8d10460c-5d0a-4d4d-9593-1df7d0f671a6",
+        "selectedRouteId": "vtxo-fast",
+        "scoringInputs": {
+          "feeSats": "50",
+          "settlementSeconds": 18,
+          "exitRiskWeight": 0,
+          "liquidityAvailable": "100000",
+          "expirySecondsRemaining": 598
+        },
+        "reason": "Selected vtxo route because it was valid, had sufficient capacity, zero exit risk, and settled 27 seconds faster than the next available route.",
+        "decidedAt": "2026-10-04T22:36:38.994Z"
+      },
+      "settlement": {
+        "id": "b0af05a1-3d7b-425a-9d21-9150543f9d1a",
+        "invoiceId": "8d10460c-5d0a-4d4d-9593-1df7d0f671a6",
+        "routeId": "vtxo-fast",
+        "status": "settled",
+        "simulation": true,
+        "txid": "x402-vtxo-fast-8d10460c"
+      }
+    }
+  },
+  "quotes": {
+    "0ab8a0b1-ecd2-4b6a-97ba-42838b75d219": {
+      "invoiceId": "0ab8a0b1-ecd2-4b6a-97ba-42838b75d219",
+      "quotedAt": "2026-10-04T18:30:49.206Z",
+      "quoteExpiresAt": "2026-10-04T18:40:49.206Z",
+      "routes": [
+        {
+          "id": "vtxo-fast",
+          "source": "vtxo",
+          "capacitySats": "100000",
+          "feeSats": "50",
+          "estimatedSettlementSeconds": 18,
+          "expiresAt": "2026-10-04T18:40:49.206Z",
+          "exitRisk": "none",
+          "available": false,
+          "requiresCooperativeSigning": true,
+          "simulation": true
+        },
+        {
+          "id": "lp-standard",
+          "source": "liquidity_provider",
+          "capacitySats": "250000",
+          "feeSats": "250",
+          "estimatedSettlementSeconds": 45,
+          "expiresAt": "2026-10-04T18:40:49.206Z",
+          "exitRisk": "low",
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        },
+        {
+          "id": "onchain-exit",
+          "source": "onchain_redemption",
+          "capacitySats": "1000000",
+          "feeSats": "500",
+          "estimatedSettlementSeconds": 600,
+          "expiresAt": "2026-10-04T18:40:49.206Z",
+          "exitRisk": "high",
+          "timelockBlocks": 1008,
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        }
+      ]
+    },
+    "995a4b38-0cc6-4747-960e-bf1290296080": {
+      "invoiceId": "995a4b38-0cc6-4747-960e-bf1290296080",
+      "quotedAt": "2026-10-04T18:31:43.029Z",
+      "quoteExpiresAt": "2026-10-04T18:41:43.029Z",
+      "routes": [
+        {
+          "id": "vtxo-fast",
+          "source": "vtxo",
+          "capacitySats": "100000",
+          "feeSats": "50",
+          "estimatedSettlementSeconds": 18,
+          "expiresAt": "2026-10-04T18:41:43.029Z",
+          "exitRisk": "none",
+          "available": true,
+          "requiresCooperativeSigning": true,
+          "simulation": true
+        },
+        {
+          "id": "lp-standard",
+          "source": "liquidity_provider",
+          "capacitySats": "250000",
+          "feeSats": "250",
+          "estimatedSettlementSeconds": 45,
+          "expiresAt": "2026-10-04T18:41:43.029Z",
+          "exitRisk": "low",
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        },
+        {
+          "id": "onchain-exit",
+          "source": "onchain_redemption",
+          "capacitySats": "1000000",
+          "feeSats": "500",
+          "estimatedSettlementSeconds": 600,
+          "expiresAt": "2026-10-04T18:41:43.029Z",
+          "exitRisk": "high",
+          "timelockBlocks": 1008,
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        }
+      ]
+    },
+    "4a572840-7a8a-4dfb-bf58-124a18132a2f": {
+      "invoiceId": "4a572840-7a8a-4dfb-bf58-124a18132a2f",
+      "quotedAt": "2026-10-04T20:03:06.210Z",
+      "quoteExpiresAt": "2026-10-04T20:13:06.210Z",
+      "routes": [
+        {
+          "id": "vtxo-fast",
+          "source": "vtxo",
+          "capacitySats": "100000",
+          "feeSats": "50",
+          "estimatedSettlementSeconds": 18,
+          "expiresAt": "2026-10-04T20:13:06.210Z",
+          "exitRisk": "none",
+          "available": true,
+          "requiresCooperativeSigning": true,
+          "simulation": true
+        },
+        {
+          "id": "lp-standard",
+          "source": "liquidity_provider",
+          "capacitySats": "250000",
+          "feeSats": "250",
+          "estimatedSettlementSeconds": 45,
+          "expiresAt": "2026-10-04T20:13:06.210Z",
+          "exitRisk": "low",
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        },
+        {
+          "id": "onchain-exit",
+          "source": "onchain_redemption",
+          "capacitySats": "1000000",
+          "feeSats": "500",
+          "estimatedSettlementSeconds": 600,
+          "expiresAt": "2026-10-04T20:13:06.210Z",
+          "exitRisk": "high",
+          "timelockBlocks": 1008,
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        }
+      ]
+    },
+    "0c6b1707-3c9c-4119-a8a2-6f51c159dbce": {
+      "invoiceId": "0c6b1707-3c9c-4119-a8a2-6f51c159dbce",
+      "quotedAt": "2026-10-04T22:35:49.330Z",
+      "quoteExpiresAt": "2026-10-04T22:45:49.330Z",
+      "routes": [
+        {
+          "id": "vtxo-fast",
+          "source": "vtxo",
+          "capacitySats": "100000",
+          "feeSats": "50",
+          "estimatedSettlementSeconds": 18,
+          "expiresAt": "2026-10-04T22:45:49.330Z",
+          "exitRisk": "none",
+          "available": true,
+          "requiresCooperativeSigning": true,
+          "simulation": true
+        },
+        {
+          "id": "lp-standard",
+          "source": "liquidity_provider",
+          "capacitySats": "250000",
+          "feeSats": "250",
+          "estimatedSettlementSeconds": 45,
+          "expiresAt": "2026-10-04T22:45:49.330Z",
+          "exitRisk": "low",
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        },
+        {
+          "id": "onchain-exit",
+          "source": "onchain_redemption",
+          "capacitySats": "1000000",
+          "feeSats": "500",
+          "estimatedSettlementSeconds": 600,
+          "expiresAt": "2026-10-04T22:45:49.330Z",
+          "exitRisk": "high",
+          "timelockBlocks": 1008,
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        }
+      ]
+    },
+    "8d10460c-5d0a-4d4d-9593-1df7d0f671a6": {
+      "invoiceId": "8d10460c-5d0a-4d4d-9593-1df7d0f671a6",
+      "quotedAt": "2026-10-04T22:36:37.737Z",
+      "quoteExpiresAt": "2026-10-04T22:46:37.737Z",
+      "routes": [
+        {
+          "id": "vtxo-fast",
+          "source": "vtxo",
+          "capacitySats": "100000",
+          "feeSats": "50",
+          "estimatedSettlementSeconds": 18,
+          "expiresAt": "2026-10-04T22:46:37.737Z",
+          "exitRisk": "none",
+          "available": true,
+          "requiresCooperativeSigning": true,
+          "simulation": true
+        },
+        {
+          "id": "lp-standard",
+          "source": "liquidity_provider",
+          "capacitySats": "250000",
+          "feeSats": "250",
+          "estimatedSettlementSeconds": 45,
+          "expiresAt": "2026-10-04T22:46:37.737Z",
+          "exitRisk": "low",
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        },
+        {
+          "id": "onchain-exit",
+          "source": "onchain_redemption",
+          "capacitySats": "1000000",
+          "feeSats": "500",
+          "estimatedSettlementSeconds": 600,
+          "expiresAt": "2026-10-04T22:46:37.737Z",
+          "exitRisk": "high",
+          "timelockBlocks": 1008,
+          "available": true,
+          "requiresCooperativeSigning": false,
+          "simulation": true
+        }
+      ]
+    }
+  },
+  "transactions": {
+    "sim-lp-standard-0ab8a0b1": {
+      "id": "303c0290-339a-45bf-b917-9d22917f5d8a",
+      "invoiceId": "0ab8a0b1-ecd2-4b6a-97ba-42838b75d219",
+      "routeId": "lp-standard",
+      "status": "settled",
+      "simulation": true,
+      "txid": "sim-lp-standard-0ab8a0b1"
+    },
+    "x402-vtxo-fast-995a4b38": {
+      "id": "2d9e645b-2df7-4871-9d78-c9fad0d0b061",
+      "invoiceId": "995a4b38-0cc6-4747-960e-bf1290296080",
+      "routeId": "vtxo-fast",
+      "status": "settled",
+      "simulation": true,
+      "txid": "x402-vtxo-fast-995a4b38"
+    },
+    "x402-vtxo-fast-8d10460c": {
+      "id": "b0af05a1-3d7b-425a-9d21-9150543f9d1a",
+      "invoiceId": "8d10460c-5d0a-4d4d-9593-1df7d0f671a6",
+      "routeId": "vtxo-fast",
+      "status": "settled",
+      "simulation": true,
+      "txid": "x402-vtxo-fast-8d10460c"
+    }
+  },
+  "refunds": {},
+  "payouts": {
+    "cefa26ae-a198-4c86-a825-2cbb5429d781": {
+      "id": "cefa26ae-a198-4c86-a825-2cbb5429d781",
+      "amountSats": "50000",
+      "destination": "bcrt1qcoldstoragewalletmerchant99",
+      "status": "queued",
+      "simulation": true,
+      "createdAt": "2026-10-04T20:02:57.812Z"
+    }
+  },
+  "webhookLogs": [],
+  "reservedLiquiditySats": "50000"
+}

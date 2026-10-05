@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: satsloom-api
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - TACHI_DAEMON_RPC_URL=https://rpc-regtest.tachibtc.com
+      - TACHI_EXPLORER_URL=https://regtest.tachibtcscan.com
+      - TACHI_RPC_TIMEOUT_MS=30000
+      - SATSLOOM_DATA_FILE=/app/data/satsloom.json
+    volumes:
+      - satsloom-data:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: satsloom-web
+    ports:
+      - "5174:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  satsloom-data:

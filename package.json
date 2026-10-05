@@ -1,8 +1,28 @@
 {
   "name": "satsloom",
   "private": true,
+  "type": "module",
   "version": "0.1.0",
-  "workspaces": ["apps/*", "packages/*"],
-  "scripts": {"spike:tachi": "tsx scripts/spike-tachi.ts", "test": "vitest run"},
-  "devDependencies": {"tsx": "^4.19.0", "typescript": "^5.6.3", "vitest": "^2.1.8"}
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node --experimental-strip-types scripts/dev.ts",
+    "build": "npm run build --workspace @satsloom/web",
+    "typecheck": "tsc --noEmit",
+    "spike:tachi": "node --experimental-strip-types scripts/spike-tachi.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@tachibtc/tachi-sdk-ts": "^0.2.1",
+    "@tachibtc/taurus-vault-core": "^0.3.3",
+    "@tachibtc/taurus-wallet-aggregator": "^0.4.4",
+    "dotenv": "^17.4.2"
+  }
 }
