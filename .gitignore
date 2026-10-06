@@ -4,3 +4,5 @@ dist
 *.db
 apps/api/data/*.json
 apps/api/data/*.tmp
+# A liveness receipt is evidence about one machine at one commit; regenerate it.
+docs/liveness-receipt.json

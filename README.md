@@ -2,6 +2,12 @@
 
 SatsLoom is a TypeScript/Node.js and React demonstration of a merchant-invoice state machine, deterministic single-route scoring, and an HTTP 402-style agent workflow. **The public demo is not a Bitcoin payment processor.** Invoice confirmation, settlement, refunds, payouts, liquidity, and x402 agent-pay are simulated records; no sats are received, verified, transferred, refunded, or broadcast.
 
+For what it would take to make this a real product — rail choice, the current Tachi/Ark/Lightning options, engineering workstreams, liquidity, compliance, cost, and a 90-day plan — see [`docs/live-product-plan.md`](docs/live-product-plan.md).
+
+The first slice of that plan is implemented: `packages/bolt11` is a spec-tested BOLT11 encoder/decoder (it re-encodes the BOLT11 specification's own test vectors byte for byte), and `packages/rails` is a `PaymentRail` abstraction whose `LightningRail` issues and verifies real invoices, with an LND REST backend for a real node and a fixture backend for CI. `npm run audit:liveness` prints, per capability, exactly how it was verified.
+
+**That does not make this demo live, and it is not wired into the API yet.** No node is configured, no invoice is ever paid, and the audit still labels every live capability `UNPROVEN` or `ABSENT`. The rail code is a foundation for the live product, tested where it can be tested offline and honest about where it cannot.
+
 ## Status and limitations
 
 - The API returns `simulation: true` on simulated flows and uses a degraded mode.
@@ -68,8 +74,11 @@ apps/web/                 React/Vite demo UI
 apps/api/                 Fastify API, demo endpoints, single-process storage
 packages/domain/          Invoice lifecycle and settlement state machine
 packages/router/          Deterministic single-route scoring
+packages/bolt11/          BOLT11 encode/decode/verify, checked against the spec's test vectors
+packages/rails/           PaymentRail abstraction: Lightning rail, LND REST backend, fixture backend
 packages/tachi-adapter/   Tachi SDK adapter and integration spike surface
 packages/ecommerce/       Merchant client example (simulation-aware)
+scripts/liveness-audit.ts Per-capability verification report (npm run audit:liveness)
 scripts/spike-tachi.ts    Opt-in Tachi/regtest integration spike
 ```
 

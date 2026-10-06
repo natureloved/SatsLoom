@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "spike:tachi": "node --experimental-strip-types scripts/spike-tachi.ts",
     "test": "vitest run",
-    "smoke:api": "node scripts/smoke-api.mjs"
+    "smoke:api": "node scripts/smoke-api.mjs",
+    "audit:liveness": "tsx scripts/liveness-audit.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

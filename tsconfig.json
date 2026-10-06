@@ -11,7 +11,9 @@
     "packages/shared/src/**/*.ts",
     "packages/router/src/**/*.ts",
     "packages/domain/src/**/*.ts",
-    "packages/ecommerce/src/**/*.ts"
+    "packages/ecommerce/src/**/*.ts",
+    "packages/bolt11/src/**/*.ts",
+    "packages/rails/src/**/*.ts"
   ],
   "exclude": ["**/*.test.ts"]
 }
