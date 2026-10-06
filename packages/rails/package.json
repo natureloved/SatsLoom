@@ -1,0 +1,11 @@
+{
+  "name": "@satsloom/rails",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "description": "PaymentRail abstraction and the Lightning rail (LND REST backend plus a fixture backend for CI).",
+  "dependencies": {
+    "@satsloom/bolt11": "0.1.0",
+    "@satsloom/shared": "0.1.0"
+  }
+}

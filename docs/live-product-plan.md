@@ -1,6 +1,8 @@
 # SatsLoom: from simulation to a live product
 
 **Status of this document:** planning / decision support. Written 2026-10-06 against commit `99c6e3c`.
+
+**Implemented since this plan was written (2026-10-06):** decisions taken were *testnet first*, *both wedges*, *BOLT11 + real detection next*, *no real money yet*. The foundation now exists — `packages/bolt11` (spec-vector-tested BOLT11 codec), `packages/rails` (`PaymentRail` + `LightningRail` + `LndRestBackend` + `FixtureLightningBackend`), and `scripts/liveness-audit.ts` (per-capability verification report, `npm run audit:liveness`). Workstreams W1 and W2 are partly done; nothing is wired into `apps/api` yet and no node is configured. See [§15](#15-what-is-implemented-now) for the exact state.
 It contains claims about third-party rails that were checked first-hand from published packages on that
 date; each is cited in [§14 Sources and how each claim was verified](#14-sources-and-how-each-claim-was-verified).
 Re-verify before relying on any of them, because this ecosystem moves weekly.
@@ -129,8 +131,9 @@ A merchant checkout is what pays the bills. C is a later B2B play.
 Each item: **what exists today → what live requires → definition of done.** File references are to the
 current tree, so this doubles as a to-do list.
 
-### W1. Rail abstraction (new `packages/rails`)
+### W1. Rail abstraction — **partly implemented** (`packages/rails`)
 
+- **Progress (2026-10-06):** `PaymentRail`, `RailDescriptor` (mode/network/live/verified derived from the backend, never asserted by a caller), `LightningRail`, `LndRestBackend` (REST client tested against a stub server: paths, macaroon header, base64 conversions, state mapping, redirect refusal), and `FixtureLightningBackend`. `describe().live` can only be true for a mainnet backend, and `isLive()` returns false in the fixture. Not yet done: `OnchainRail`, `ArkRail`, wiring into `apps/api`.
 - **Today:** `packages/tachi-adapter` implements a 12-method `TachiAdapter` interface used by nothing in the
   public API. Settlement is an inline closure in `apps/api/src/server.ts` (`settleInvoice(..., async (route) => ({simulation:true, txid}))`).
 - **Needed:** one `PaymentRail` interface (create request / poll + subscribe / verify / refund / payout /
@@ -140,8 +143,9 @@ current tree, so this doubles as a to-do list.
 - **Done when:** the API can be pointed at `lightning-signet`, `lightning-mainnet`, `onchain-mainnet` or
   `fixture` by environment variable only, and every response envelope states the real rail and mode.
 
-### W2. Real payment request generation
+### W2. Real payment request generation — **partly implemented**
 
+- **Progress (2026-10-06):** real signed BOLT11 invoices with amount, description, payment secret, expiry, feature bits and an optional BIP-350 fallback address; every invoice a backend returns is decoded and checked against the request (`assertInvoiceMatchesRequest`: network, amount, payment hash, expiry, signature) before it is exposed. Not yet done: BIP21 QR rendering in the UI, fiat pricing/rate locks, API wiring.
 - **Today:** `createDemoQuote()` and the checkout session return `paymentUrl: "/#checkout/<id>"` and
   `qrPayload: null`. `apps/web/src/components/QRCodeModal.tsx` renders an explicit *"Simulation only"* card.
 - **Needed:** per invoice, produce a real payable artifact — BOLT11 (or BOLT12 offer) with `amount_msat`,
@@ -152,8 +156,9 @@ current tree, so this doubles as a to-do list.
 - **Done when:** a stranger can scan the QR with a real wallet and pay; the invoice records the payment
   request, its expiry, and the fiat rate used, immutably.
 
-### W3. Payment detection and verification
+### W3. Payment detection and verification — **partly implemented**
 
+- **Progress (2026-10-06):** `verifyPayment()` is a pure, fully tested credit decision (refuses missing preimage, invalid preimage, hash mismatch, wrong invoice, expiry, underpayment; records surplus; `CreditRegistry` claims each preimage once). `LndRestBackend.lookupInvoice()` maps LND states and deliberately passes through "settled with no preimage" so the credit path fails closed. Not yet done: invoice subscription/backfill, reconnection, the on-chain watcher, confirmation policy, reorg handling, per-invoice attribution in the API.
 - **Today:** `POST /api/invoices/:id/simulate-payment` calls `confirmPayment()` — a pure function.
 - **Needed:** LND `SubscribeInvoices` / CLN subscriptions with reconnection and backfill, preimage
   verification and amount check; an on-chain watcher (Esplora/`bitcoind` ZMQ) with a confirmation policy
@@ -419,12 +424,12 @@ which is exactly why the licensed-partner route exists.
 ## 11. The 90-day plan, concretely
 
 **Weeks 1–2 — decisions and foundations**
-1. Answer the five questions in [§13](#13-open-decisions-needed-from-the-owner).
-2. Bring `docs/live-product-plan.md` (this file) in line with the answers; delete what does not apply.
-3. Stand up `packages/rails` with the `PaymentRail` interface + `FixtureRail` that wraps today's simulation
-   behind the new interface, so nothing is lost and everything is now swappable.
-4. Add the `liveness audit` script and wire it into CI (fails if a capability is claimed but unverified).
-5. Choose a licence; add `LICENSE` (or a deliberate "proprietary" note) and an SBOM step.
+1. ~~Answer the five questions in [§13](#13-open-decisions-needed-from-the-owner).~~ **Done:** testnet first, both wedges, BOLT11 + real detection, no real money.
+2. ~~Bring this document in line with the answers.~~ **Done.**
+3. ~~Stand up `packages/rails` with the `PaymentRail` interface.~~ **Done** (Lightning rail + fixture backend; on-chain rail still open).
+4. ~~Add the liveness audit script.~~ **Done** (`npm run audit:liveness`). Still open: wire it into CI and make an unproven live claim fail the build.
+5. **Open:** choose a licence; add `LICENSE` (or a deliberate "proprietary" note) and an SBOM step.
+6. **Next:** wire `LightningRail` into `apps/api` behind a flag, persist payment requests (the ledger work in W4), and render a real QR in the checkout component.
 
 **Weeks 3–5 — L1 (real request + real detection on testnet)**
 6. `LightningRail`: BOLT11 issuance + `SubscribeInvoices` detection, against a signet/regtest LND.
@@ -522,3 +527,28 @@ Third-party claims in this document were checked on 2026-10-06:
 
 Everything else in this document is either a direct reading of this repository (file and line references are
 to commit `99c6e3c`) or an engineering judgement, and is labelled as such.
+
+## 15. What is implemented now
+
+Written after the first implementation slice, so the plan above and the code stay in agreement.
+
+| Area | State | Where |
+|---|---|---|
+| BOLT11 encode/decode/verify | **Verified** against the specification's own vectors, byte for byte | `packages/bolt11` (15 tests) |
+| Invoice ↔ request consistency check | **Implemented** | `assertInvoiceMatchesRequest()` in `packages/rails` |
+| Credit decision (fail closed) | **Implemented and tested** | `verifyPayment()`, `CreditRegistry` in `packages/rails` |
+| Lightning rail + LND REST client | **Implemented; unproven against a real node** | `packages/rails/src/lnd-rest.ts`, tested against a stub server |
+| Fixture node (real invoices, no network) | **Implemented; cannot report itself live** | `packages/rails/src/fixture.ts` |
+| Liveness audit | **Implemented** (`npm run audit:liveness`, `--json` writes a receipt) | `scripts/liveness-audit.ts` |
+| API wiring, persistence, ledger, outbox, tenancy, KMS, liquidity | **Not started** | see W4–W12 |
+
+How to see the truth for yourself, in one command:
+
+```sh
+npm run audit:liveness            # 7 verified · 10 unproven/absent · 0 failed (fixture)
+npm run audit:liveness -- --require-live   # non-zero until a real payment has been reconciled
+```
+
+The next honest milestone is a **signet or regtest LND node** running `LightningRail`, issuing an invoice a
+wallet can pay, and crediting it through `verifyPayment()` — then `rail.real_payment_settlement` stops being
+`UNPROVEN` and starts having a receipt.

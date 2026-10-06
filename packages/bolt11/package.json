@@ -1,0 +1,10 @@
+{
+  "name": "@satsloom/bolt11",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "description": "Minimal, spec-tested BOLT11 encoder/decoder. Real invoices, no simulation.",
+  "dependencies": {
+    "@noble/curves": "^2.4.0"
+  }
+}
