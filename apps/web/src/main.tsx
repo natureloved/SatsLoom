@@ -10,7 +10,7 @@ import { SatsLoomDashboard } from "./components/SatsLoomDashboard";
 import "./style.css";
 
 const API = "";
-type ApiEnvelope = { data: any; mode: "live" | "degraded"; simulation?: boolean; error?: string; fallbackHistory?: any[] };
+type ApiEnvelope = { data: any; mode: "degraded"; simulation?: boolean; error?: string; fallbackHistory?: any[] };
 
 function normalizeInvoice(data: any) {
   if (!data) throw new Error("API returned an empty invoice");
@@ -23,34 +23,33 @@ const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 const LAB_ROUTES = [
-  { id: "LQD-0x8f2e", hops: "ACINUS → TORUS → you", cap: 120000, base: 0.86, fee: 0.0021, ms: 210 },
-  { id: "LQD-0x31aa", hops: "BOLTWORKS → you", cap: 64000, base: 0.79, fee: 0.0009, ms: 340 },
-  { id: "LQD-0xb7c1", hops: "MERIDIAN → HALCYON → you", cap: 220000, base: 0.82, fee: 0.0034, ms: 180 },
-  { id: "LQD-0x0d47", hops: "SATFORGE → you", cap: 38000, base: 0.74, fee: 0.0012, ms: 520 },
-  { id: "LQD-0x9e15", hops: "NIGHTJAR → KEYSTONE → you", cap: 150000, base: 0.88, fee: 0.0028, ms: 260 },
+  { id: "vtxo-fast", hops: "sample VTXO candidate", cap: 100_000, feeSats: 50, seconds: 18, exitRisk: "none" },
+  { id: "lp-standard", hops: "sample provider candidate", cap: 250_000, feeSats: 250, seconds: 45, exitRisk: "low" },
+  { id: "onchain-exit", hops: "sample on-chain exit candidate", cap: 1_000_000, feeSats: 500, seconds: 600, exitRisk: "high" },
 ];
 
 const TICKER_ITEMS = [
-  "VTXO <b>42,180 sats</b> settled in <i>291 ms</i>",
-  "route <b>LQD-0x9e15</b> · score 0.97",
-  "TAURUS vault depth <b>1.24 BTC</b> · exit leaf armed",
-  "x402 <i>200 OK</i> · agent 0x77 · 4,200 sats",
-  "multi-path split <b>62 / 38</b> · atomic",
-  "invoice <b>ord_9f3a</b> · bolt12 issued",
-  "batch <b>#812</b> renewed · 33h runway",
-  "unilateral exit testnet drill · <i>passed</i>",
+  "<b>DEMO</b> · invoice confirmation is simulated",
+  "route scoring uses <b>sample</b> liquidity candidates",
+  "no Bitcoin address or payment QR is issued",
+  "x402 sandbox returns a <i>signed demo receipt</i>",
+  "fallback is tried only for a <b>safe retryable failure</b>",
+  "no Lightning, VTXO, refund, or payout transfer is executed",
+  "Tachi adapter methods are <b>not exercised</b> by demo settlement",
+  "production persistence requires a <i>shared database</i>",
+  "the adapter spike is separate from public demo settlement",
 ];
 
 const X402_LINES = [
-  { cls: "agent", txt: "→  GET /v1/pricing/feed        (agent 0x77)" },
-  { cls: "merch", txt: "←  HTTP/1.1 402 Payment Required" },
-  { cls: "dim", txt: "      X-PAYMENT-ACCEPT: sats.vtxo; net=bitcoin; max=5000" },
-  { cls: "agent", txt: "→  POST /v1/pricing/feed" },
-  { cls: "dim", txt: "      X-PAYMENT: AQBz4k…Q9vA==   (4,200 sats · signed)" },
-  { cls: "weave", txt: "   ⚡ loomd weave: route LQD-0x9e15 · split 100% · 287ms" },
-  { cls: "merch", txt: "←  HTTP/1.1 200 OK" },
-  { cls: "head", txt: "      X-PAYMENT-RESPONSE: receipt=vtxo:9ac2f1… ✓" },
-  { cls: "dim", txt: "      ── session complete · funds in merchant TAURUS vault ──" },
+  { cls: "agent", txt: "→  GET /api/x402/resource" },
+  { cls: "merch", txt: "←  HTTP/1.1 402 Payment Required · demo" },
+  { cls: "dim", txt: "      x-402-invoice-id: sample challenge · 50 sats (simulated)" },
+  { cls: "agent", txt: "→  POST /api/x402/agent-pay" },
+  { cls: "weave", txt: "   ⚡ state-machine route selection · no provider call" },
+  { cls: "dim", txt: "      signed receipt · simulation=true · not a payment proof" },
+  { cls: "merch", txt: "←  HTTP/1.1 200 OK · demo resource" },
+  { cls: "head", txt: "      Authorization: SatsLoom-Demo <signed-simulation-receipt>" },
+  { cls: "dim", txt: "      ── sample resource unlocked · no sats moved ──" },
 ];
 
 export function App() {
@@ -65,12 +64,13 @@ export function App() {
 
   // Hash route sync
   useEffect(() => {
-    if (window.location.hash === "#dashboard") {
-      setCurrentView("dashboard");
-    }
+    if (window.location.hash === "#dashboard") setCurrentView("dashboard");
+    if (window.location.hash.startsWith("#checkout/")) setCurrentView("landing");
     const handleHash = () => {
       if (window.location.hash === "#dashboard") {
         setCurrentView("dashboard");
+      } else if (window.location.hash.startsWith("#checkout/")) {
+        setCurrentView("landing");
       } else if (!window.location.hash) {
         setCurrentView("landing");
       }
@@ -79,14 +79,14 @@ export function App() {
     return () => window.removeEventListener("hashchange", handleHash);
   }, []);
 
-  // Live stats
-  const [routedSats, setRoutedSats] = useState(21041988);
+  // Demo counter only; no routed sats are reported by this simulation.
+  const [routedSats] = useState(0);
 
   // Scramble headings
-  const [scramble1, setScramble1] = useState("Native Bitcoin,");
-  const [scramble2, setScramble2] = useState("woven into settlement.");
+  const [scramble1, setScramble1] = useState("Bitcoin payment");
+  const [scramble2, setScramble2] = useState("flow simulator.");
 
-  // SVG Loom & Live Console
+  // Decorative SVG & static demo trace
   const svgRef = useRef<SVGSVGElement | null>(null);
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const [consoleLines, setConsoleLines] = useState<Array<{ id: string; time: string; tagCls: string; tag: string; msg: string }>>([]);
@@ -98,9 +98,9 @@ export function App() {
   const [labAmount, setLabAmount] = useState(21000);
   const [labMode, setLabMode] = useState<"speed" | "cost" | "reliability">("speed");
   const [labExecuting, setLabExecuting] = useState(false);
-  const [labStatus, setLabStatus] = useState("Awaiting order… scores update live as you tune the thread.");
+  const [labStatus, setLabStatus] = useState("Illustrative route model. No payment will be sent.");
   const [labProgressActive, setLabProgressActive] = useState(false);
-  const [labResult, setLabResult] = useState<{ amount: number; ms: number; routeId: string } | null>(null);
+  const [labResult, setLabResult] = useState<{ amount: number; seconds: number; routeId: string } | null>(null);
 
   // x402 Terminal state
   const [xStep, setXStep] = useState(0);
@@ -184,52 +184,22 @@ export function App() {
       }, delay);
     };
 
-    runScramble("Native Bitcoin,", setScramble1, 300);
-    runScramble("woven into settlement.", setScramble2, 750);
+    runScramble("Bitcoin payment", setScramble1, 300);
+    runScramble("flow simulator.", setScramble2, 750);
   }, []);
 
-  // Live routed ticker
+  // Static demo trace. It describes capabilities and limits rather than inventing live settlements.
   useEffect(() => {
-    const iv = setInterval(() => {
-      setRoutedSats((prev) => prev + (600 + ((Math.random() * 7200) | 0)));
-    }, 2100);
-    return () => clearInterval(iv);
+    const time = new Date().toLocaleTimeString();
+    setConsoleLines([
+      { id: "demo-1", time, tagCls: "amb", tag: "MODE", msg: "degraded demo · no Bitcoin payments executed" },
+      { id: "demo-2", time, tagCls: "amb", tag: "ROUTE", msg: "three illustrative candidates · no live liquidity feed" },
+      { id: "demo-3", time, tagCls: "x", tag: "X402", msg: "signed demo receipt · not proof of payment" },
+      { id: "demo-4", time, tagCls: "v", tag: "STORE", msg: "single-process JSON locally; memory-only on Vercel" },
+    ]);
   }, []);
 
-  // Live console lines generator
-  useEffect(() => {
-    const rid = () => "LQD-0x" + Math.random().toString(16).slice(2, 6);
-    const sat = () => fmt(900 + Math.random() * 80000);
-    const ms = () => 180 + ((Math.random() * 420) | 0);
-    const ts = () => {
-      const d = new Date();
-      return `[${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}.${String(d.getMilliseconds()).padStart(3, "0")}]`;
-    };
-    const pool = [
-      () => ({ tagCls: "ok", tag: "SETTLE", msg: `vtxo ${sat()} sats · ${ms()}ms · route ${rid()}` }),
-      () => ({ tagCls: "amb", tag: "SCORE", msg: `${rid()} → 0.${90 + ((Math.random() * 9) | 0)} · fee ${(Math.random() * 0.3).toFixed(2)}%` }),
-      () => ({ tagCls: "amb", tag: "ROUTE", msg: `multi-path split ${55 + ((Math.random() * 30) | 0)}/${10 + ((Math.random() * 30) | 0)} · atomic` }),
-      () => ({ tagCls: "x", tag: "X402", msg: `402→200 · agent 0x${Math.random().toString(16).slice(2, 4)} · ${fmt(800 + Math.random() * 4000)} sats` }),
-      () => ({ tagCls: "v", tag: "VAULT", msg: `taurus depth ${(0.8 + Math.random() * 1.4).toFixed(2)} BTC · exit leaf armed` }),
-      () => ({ tagCls: "ok", tag: "VTXO", msg: `batch #${800 + ((Math.random() * 40) | 0)} renewed · runway 33h` }),
-      () => ({ tagCls: "amb", tag: "INVOICE", msg: `bolt12 issued · ord_${Math.random().toString(16).slice(2, 6)} · ${sat()} sats` }),
-    ];
-
-    // Seed lines
-    const initial = Array.from({ length: 5 }, (_, i) => {
-      const item = pool[i % pool.length]();
-      return { id: `init-${i}`, time: ts(), ...item };
-    });
-    setConsoleLines(initial);
-
-    const interval = setInterval(() => {
-      const item = pool[(Math.random() * pool.length) | 0]();
-      setConsoleLines((prev) => [{ id: String(Date.now()), time: ts(), ...item }, ...prev.slice(0, 7)]);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // SVG Loom: flowing packets and vault fill animation
+  // Decorative SVG animation only; it does not represent payment packets or balances.
   useEffect(() => {
     if (currentView !== "landing") return;
     const svg = svgRef.current;
@@ -239,7 +209,6 @@ export function App() {
     const inPaths = ["p1", "p2", "p3", "p4", "p5"].map((id) => svg.getElementById(id) as SVGPathElement).filter(Boolean);
     const outPaths = ["o1", "o2"].map((id) => svg.getElementById(id) as SVGPathElement).filter(Boolean);
     const packetG = svg.getElementById("packets");
-    const vaultFill = svg.getElementById("vaultFill");
 
     if (!packetG || inPaths.length === 0 || outPaths.length === 0) return;
 
@@ -247,7 +216,7 @@ export function App() {
     const pg = svg.getElementById("payers");
     if (pg && pg.children.length === 0) {
       const payerY = [60, 140, 220, 300, 380];
-      const payerL = ["AGENT 0x3F", "STOREFRONT", "AGENT 0xA1", "SUBSCRIBER", "AGENT 0x77"];
+      const payerL = ["SAMPLE INPUT 1", "SAMPLE INPUT 2", "SAMPLE INPUT 3", "SAMPLE INPUT 4", "SAMPLE INPUT 5"];
       payerY.forEach((y, i) => {
         const c = document.createElementNS(NS, "circle");
         c.setAttribute("cx", "64");
@@ -315,20 +284,8 @@ export function App() {
     }
     animId = requestAnimationFrame(loop);
 
-    // Vault fill
-    let fillH = 0;
-    const vInterval = setInterval(() => {
-      fillH += 6;
-      if (fillH > 68) fillH = 6;
-      if (vaultFill) {
-        vaultFill.setAttribute("y", String(250 - fillH));
-        vaultFill.setAttribute("height", String(fillH));
-      }
-    }, 900);
-
     return () => {
       cancelAnimationFrame(animId);
-      clearInterval(vInterval);
       packetG?.replaceChildren();
     };
   }, [currentView]);
@@ -387,7 +344,7 @@ export function App() {
       setTimeout(() => {
         setXStep(i + 1);
         if (i === X402_LINES.length - 1) {
-          setXStatus("SETTLED ✓ 287ms");
+          setXStatus("SIMULATION COMPLETE · no funds moved");
         }
       }, (i + 1) * 420);
     });
@@ -412,17 +369,20 @@ export function App() {
     return () => xio.disconnect();
   }, [currentView]);
 
-  // Route Lab scoring
+  // This client-side score consumes illustrative constants, not a live API quote.
+  const maxModelSeconds = Math.max(...LAB_ROUTES.map((route) => route.seconds));
+  const maxModelFee = Math.max(...LAB_ROUTES.map((route) => route.feeSats));
   const scoredRoutes = LAB_ROUTES.map((r) => {
     const capOK = labAmount <= r.cap;
-    const speedN = clampN(1 - (r.ms - 150) / (600 - 150), 0, 1);
-    const costN = clampN(1 - (r.fee - 0.0008) / (0.0036 - 0.0008), 0, 1);
-    let s = 0;
-    if (labMode === "speed") s = 0.44 * speedN + 0.2 * costN + 0.36 * r.base;
-    else if (labMode === "cost") s = 0.44 * costN + 0.2 * speedN + 0.36 * r.base;
-    else s = 0.52 * r.base + 0.24 * speedN + 0.24 * costN;
-    if (!capOK) s *= 0.35;
-    return { ...r, score: s, capOK, feeSats: Math.max(1, Math.round(labAmount * r.fee)) };
+    const speedN = clampN(1 - (r.seconds - 18) / (maxModelSeconds - 18), 0, 1);
+    const costN = clampN(1 - (r.feeSats - 50) / (maxModelFee - 50), 0, 1);
+    const exitRiskN = r.exitRisk === "none" ? 1 : r.exitRisk === "low" ? 0.75 : 0.4;
+    let score = 0;
+    if (labMode === "speed") score = 0.5 * speedN + 0.25 * costN + 0.25 * exitRiskN;
+    else if (labMode === "cost") score = 0.25 * speedN + 0.5 * costN + 0.25 * exitRiskN;
+    else score = 0.25 * speedN + 0.25 * costN + 0.5 * exitRiskN;
+    if (!capOK) score *= 0.35;
+    return { ...r, score, capOK };
   }).sort((a, b) => b.score - a.score);
 
   const bestRoute = scoredRoutes[0];
@@ -433,9 +393,13 @@ export function App() {
     setLabResult(null);
     setLabProgressActive(true);
 
-    const stages = bestRoute.capOK
-      ? ["Scoring fabric… lock best thread…", `Executing on ${bestRoute.id}… allocating VTXO…`, "Settling into TAURUS vault…"]
-      : ["Amount exceeds single thread — weaving multi-path split…", `Executing split across ${bestRoute.id} + fallback…`, "Atomic multi-part delivery… settling…"];
+      if (!bestRoute.capOK) {
+      setLabStatus("Amount exceeds every single-route sample capacity; this demo does not split or settle it.");
+      setLabExecuting(false);
+      setLabProgressActive(false);
+      return;
+    }
+    const stages = ["Scoring illustrative candidates…", `Selecting ${bestRoute.id} in the local model…`, "Simulation complete; no payment sent."];
 
     let idx = 0;
     setLabStatus(stages[0]);
@@ -448,11 +412,9 @@ export function App() {
       clearInterval(iv);
       setLabExecuting(false);
       setLabProgressActive(false);
-      const settleMs = bestRoute.ms + ((Math.random() * 60) | 0) - 20;
-      setLabStatus(`SETTLED ✓ ${fmt(labAmount)} sats via ${bestRoute.id}${bestRoute.capOK ? "" : " (multi-path)"} · ${settleMs} ms`);
-      setLabResult({ amount: labAmount, ms: settleMs, routeId: bestRoute.id });
-      setRoutedSats((prev) => prev + labAmount);
-      showToast(`⚡ ${fmt(labAmount)} sats settled in ${settleMs} ms`);
+      setLabStatus(`SIMULATION · ${fmt(labAmount)} sats would select ${bestRoute.id}; sample estimate ${bestRoute.seconds} s. No payment sent.`);
+      setLabResult({ amount: labAmount, seconds: bestRoute.seconds, routeId: bestRoute.id });
+      showToast("Route model simulated; no sats moved");
     }, 1650);
   };
 
@@ -477,6 +439,27 @@ export function App() {
     if (!response.ok) throw new Error(body.error ?? body.data?.error ?? `Request failed (${response.status})`);
     return body;
   };
+
+  useEffect(() => {
+    const match = window.location.hash.match(/^#checkout\/([A-Za-z0-9-]+)$/);
+    if (!match) return;
+    let cancelled = false;
+    const invoiceId = decodeURIComponent(match[1]);
+    fetch(`/api/invoices/${encodeURIComponent(invoiceId)}`)
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? body.data?.error ?? "Checkout invoice not found");
+        if (!cancelled) {
+          setCurrentView("landing");
+          setInvoice(normalizeInvoice(body.data));
+          setShowCheckoutModal(true);
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const refresh = async (id: string) => {
     const [invoiceResponse, routesResponse, settlementResponse] = await Promise.all([
@@ -547,6 +530,7 @@ export function App() {
     action(async () => {
       const response = await api("/api/invoices", {
         method: "POST",
+        headers: { "Idempotency-Key": `invoice:${crypto.randomUUID()}` },
         body: JSON.stringify({ amountSats: amount, memo, webhookUrl: webhookUrl || undefined }),
       });
       const created = normalizeInvoice(response.data);
@@ -601,11 +585,13 @@ export function App() {
 
   const handleBuyShopProduct = async (product: any) => {
     await action(async () => {
+      const safeOrderId = `shop-${product.id}-${crypto.randomUUID()}`;
       const response = await api("/api/checkout/session", {
         method: "POST",
+        headers: { "Idempotency-Key": safeOrderId },
         body: JSON.stringify({
           amountSats: product.priceSats,
-          orderId: `shop-${product.id}-${Date.now().toString().slice(-4)}`,
+          orderId: safeOrderId,
           memo: `SatsShop Order: ${product.name}`,
         }),
       });
@@ -616,14 +602,14 @@ export function App() {
     });
   };
 
-  const isPaid = invoice?.status === "confirmed" || settlement?.lifecycle === "SETTLED" || invoice?.lifecycle === "SETTLED";
+  const isSimulated = invoice?.status === "confirmed" || settlement?.lifecycle === "SETTLED" || invoice?.lifecycle === "SETTLED";
   const settled = settlement?.lifecycle === "SETTLED";
 
   const flowTitles = [
-    "Invoice & order",
-    "Multi-path route scoring",
-    "Execute the best thread",
-    "Settle as a VTXO, emit events",
+    "Create a demo invoice",
+    "Score sample routes",
+    "Simulate confirmation",
+    "Inspect demo state",
   ];
 
   if (currentView === "dashboard") {
@@ -738,7 +724,7 @@ export function App() {
                       <div className="card-header-row">
                         <div>
                           <h3>Generate Merchant Invoice</h3>
-                          <p className="subtext">Issue instant native-sat invoices with automatic VTXO route quotation</p>
+                          <p className="subtext">Create simulated invoices; no payment address or live route quote is issued</p>
                         </div>
                       </div>
 
@@ -766,12 +752,12 @@ export function App() {
                         </label>
 
                         <label className="form-field webhook-field">
-                          <span>Webhook URL (Optional)</span>
+                          <span>Allow-listed HTTPS webhook (optional)</span>
                           <input
                             type="url"
                             value={webhookUrl}
                             onChange={(e) => setWebhookUrl(e.target.value)}
-                            placeholder="https://mysite.com/webhook"
+                            placeholder="https://merchant.example/webhook"
                           />
                         </label>
 
@@ -791,14 +777,14 @@ export function App() {
                             <h2>{Number(invoice.amountSats).toLocaleString()} SATS</h2>
                             <p className="invoice-meta-sub">
                               ID: <code>{invoice.id}</code> • Status:{" "}
-                              <strong className={`status-pill ${invoice.status}`}>{invoice.status.toUpperCase()}</strong> • Lifecycle:{" "}
+                              <strong className={`status-pill ${invoice.status}`}>{invoice.status.toUpperCase()}</strong> · simulated • Lifecycle:{" "}
                               <strong>{settlement?.lifecycle ?? invoice.lifecycle}</strong>
                             </p>
                           </div>
 
                           <div className="invoice-header-actions">
                             <button className="btn-qr-view" onClick={() => setShowCheckoutModal(true)}>
-                              📱 View Customer QR Code
+                              📄 View Demo Checkout
                             </button>
                             <button
                               className="btn-pay-action"
@@ -821,7 +807,7 @@ export function App() {
                           <span className={`stream-dot ${eventsConnected ? "connected" : "connecting"}`}></span>
                           <span>
                             Server-Sent Events:{" "}
-                            {eventsConnected ? "Live Real-Time Stream Connected" : "Connecting to EventStream..."}
+                            {eventsConnected ? "Demo event stream connected" : "Connecting to demo event stream..."}
                           </span>
                         </div>
 
@@ -841,12 +827,12 @@ export function App() {
                         {settlement?.settlement && (
                           <div className="settlement-receipt-card">
                             <div className="receipt-header">
-                              <span className="receipt-title">Settlement Verification Receipt</span>
-                              <span className="simulation-tag">Tachi Regtest Simulation</span>
+                              <span className="receipt-title">Simulated Settlement Record</span>
+                              <span className="simulation-tag">Simulation · no funds moved</span>
                             </div>
                             <div className="receipt-grid">
                               <div>
-                                <span className="receipt-label">Settlement TxID:</span>
+                                <span className="receipt-label">Demo settlement ID:</span>
                                 <code>{settlement.settlement.txid ?? "Pending"}</code>
                               </div>
                               <div>
@@ -893,7 +879,7 @@ export function App() {
             invoice={invoice}
             onClose={() => setShowCheckoutModal(false)}
             onSimulatePay={simulatePayment}
-            isPaid={isPaid}
+            isSimulated={isSimulated}
           />
         )}
       </div>
@@ -925,7 +911,7 @@ export function App() {
           </nav>
           <div className="status-pill">
             <span className="pulse-dot"></span>
-            {status?.daemon?.reachable ? "TACHI TESTNET · SYNCED" : "TESTNET · SYNCED"}
+            {status?.daemon?.reachable ? "TACHI ENDPOINT · REACHABLE" : "DEMO · NO PAYMENT NETWORK"}
           </div>
           <button
             className="nav-cta-secondary"
@@ -990,7 +976,7 @@ export function App() {
           <div className="wrap hero-grid">
             <div className="hero-copy">
               <div className="chip rv">
-                <span className="dot"></span>BUILT ON TACHI · AGENTIC EXECUTION LAYER
+                <span className="dot"></span>SIMULATION · NO PAYMENT NETWORK CONNECTED
               </div>
               <h1 className="display">
                 <span className="scramble">{scramble1}</span>
@@ -998,11 +984,11 @@ export function App() {
                 <span className="scramble l2">{scramble2}</span>
               </h1>
               <p className="lede rv d1">
-                SatsLoom is a self-hosted, self-custodial settlement router and <em>x402</em> payment gateway. It weaves Lightning liquidity, VTXO batches and Taproot custody into one clean surface — for storefronts and autonomous agents alike. No wrapped tokens. No bridges. No custodians.
+                SatsLoom is a TypeScript demo for invoice lifecycles, route scoring, and x402-style HTTP 402 challenges. Payment confirmation, settlement, refunds, and payouts in this app are simulations: it does not receive or move Bitcoin.
               </p>
               <div className="cta-row rv d2">
                 <a className="btn primary" href="#selfhost">
-                  Deploy SatsLoom
+                  Run locally
                 </a>
                 <button
                   className="btn ghost"
@@ -1019,13 +1005,13 @@ export function App() {
               </div>
               <div className="oneliner mono rv d3">
                 <span className="prompt">$</span>
-                <code>docker run -p 8402:8402 ghcr.io/satsloom/loomd</code>
+                <code>npm ci &amp;&amp; npm run dev</code>
                 <button
                   className={`copy ${copiedDocker ? "done" : ""}`}
                   onClick={() => {
-                    navigator.clipboard.writeText("docker run -p 8402:8402 ghcr.io/satsloom/loomd");
+                    navigator.clipboard.writeText("npm ci && npm run dev");
                     setCopiedDocker(true);
-                    showToast("Docker command copied to clipboard");
+                    showToast("Local demo command copied to clipboard");
                     setTimeout(() => setCopiedDocker(false), 1400);
                   }}
                 >
@@ -1034,20 +1020,20 @@ export function App() {
               </div>
               <div className="stats rv d4">
                 <div className="stat">
-                  <span className="sv"><b className="count">340</b> ms</span>
-                  <span className="sl">median settle</span>
+                  <span className="sv"><b className="count">3</b></span>
+                  <span className="sl">sample route candidates</span>
                 </div>
                 <div className="stat">
-                  <span className="sv"><b className="count">{fmt(routedSats)}</b></span>
-                  <span className="sl">sats routed · live</span>
+                  <span className="sv"><b className="count">0</b></span>
+                  <span className="sl">real sats moved by this demo</span>
                 </div>
                 <div className="stat">
-                  <span className="sv"><b className="count">99.98</b>%</span>
-                  <span className="sl">router uptime</span>
+                  <span className="sv"><b className="count">SIM</b></span>
+                  <span className="sl">settlement mode</span>
                 </div>
                 <div className="stat">
-                  <span className="sv"><b className="count">1,284</b></span>
-                  <span className="sl">liquidity threads</span>
+                  <span className="sv"><b className="count">0</b></span>
+                  <span className="sl">connected liquidity feeds</span>
                 </div>
               </div>
             </div>
@@ -1055,11 +1041,11 @@ export function App() {
             <div className="hero-panel panel rv d2">
               <div className="p-head">
                 <div className="p-sq"><i></i><i></i><i></i></div>
-                <span className="p-title">loomd — route fabric · testnet</span>
-                <span className="live"><i></i>LIVE</span>
+                <span className="p-title">SatsLoom · decorative simulation graphic</span>
+                <span className="live"><i></i>DEMO</span>
               </div>
               <div className="loom-stage">
-                <svg id="loomSvg" ref={svgRef} viewBox="0 0 640 430" aria-label="Live route loom visualization">
+                <svg id="loomSvg" ref={svgRef} viewBox="0 0 640 430" aria-label="Illustrative demo route visualization">
                   {/* inbound threads */}
                   <path className="lp" id="p1" d="M64 60 C 170 60, 205 215, 292 215" />
                   <path className="lp" id="p2" d="M64 140 C 168 140, 205 215, 292 215" />
@@ -1067,7 +1053,7 @@ export function App() {
                   <path className="lp" id="p4" d="M64 300 C 168 300, 205 218, 292 216" />
                   <path className="lp" id="p5" d="M64 380 C 170 380, 205 218, 292 216" />
 
-                  {/* outbound multi-path split */}
+                  {/* illustrative outbound paths; no payment is executed */}
                   <path className="lp" id="o1" data-out="1" d="M348 205 C 430 150, 480 150, 548 196" />
                   <path className="lp" id="o2" data-out="1" d="M348 227 C 430 285, 480 285, 548 236" />
 
@@ -1092,23 +1078,22 @@ export function App() {
                       strokeWidth="1.5"
                     />
                     <circle className="hex-core" cx="320" cy="216" r="5" fill="#F7931A" />
-                    <text className="node-label" x="306" y="264" fill="#A79B7E">loomd</text>
+                    <text className="node-label" x="306" y="264" fill="#A79B7E">DEMO</text>
                   </g>
 
                   {/* score chips */}
-                  <text className="score-chip" x="418" y="140">α 62% · score 0.97</text>
-                  <text className="score-chip g" x="418" y="304">β 38% · score 0.93</text>
+                  <text className="score-chip" x="418" y="140">ILLUSTRATIVE ROUTE MODEL</text>
+                  <text className="score-chip g" x="418" y="304">NO PAYMENT EXECUTED</text>
 
-                  {/* vault */}
+                  {/* Demo state destination; no wallet, vault, or funds are connected. */}
                   <g>
                     <rect x="552" y="178" width="76" height="76" rx="6" fill="rgba(184,224,105,.05)" stroke="#B8E069" strokeWidth="1.2" />
-                    <rect id="vaultFill" x="556" y="250" width="68" height="0" fill="rgba(184,224,105,.22)" />
-                    <text className="node-label" x="566" y="206" fill="#B8E069">TAURUS</text>
-                    <text className="node-label" x="572" y="220" fill="#6E6552">P2TR</text>
+                    <text className="node-label" x="570" y="206" fill="#B8E069">APP</text>
+                    <text className="node-label" x="566" y="220" fill="#6E6552">STATE</text>
                     <path d="M584 232 h12 v10 h-12 z M587 232 v-4 a3 3 0 0 1 6 0 v4" stroke="#B8E069" strokeWidth="1.2" fill="none" />
                   </g>
-                  <text className="node-label" x="10" y="24">payers / agents</text>
-                  <text className="node-label" x="560" y="272" fill="#6E6552">merchant vault</text>
+                  <text className="node-label" x="10" y="24">illustrative inputs</text>
+                  <text className="node-label" x="557" y="272" fill="#6E6552">demo record</text>
                   <g id="packets"></g>
                 </svg>
               </div>
@@ -1141,9 +1126,9 @@ export function App() {
           <div className="wrap">
             <div className="sec-head">
               <div className="kicker">// 01 · THE WEAVE</div>
-              <h2 className="lm"><span>Four moves from invoice to settled sats.</span></h2>
+              <h2 className="lm"><span>Explore an invoice-to-settlement simulation.</span></h2>
               <p className="sub rv">
-                SatsLoom treats every payment like a thread on a loom — scored, tensioned, and woven into the fastest clean settlement path.
+                The demo walks through invoice state, sample route scoring, a simulated confirmation, and inspectable application events. No payment is sent.
               </p>
             </div>
             <div className="flow-grid">
@@ -1154,51 +1139,50 @@ export function App() {
                   <i style={{ height: `${((flowIndex + 1) / 4) * 100}%` }}></i>
                 </div>
                 <p className="flow-note">
-                  loomd watches the fabric and re-scores routes continuously, so the move you execute is always the move that was measured a moment ago.
+                  Decorative animated lines only. They do not show customer traffic, payment execution, balances, or a live route.
                 </p>
               </div>
               <div className="flow-steps">
-                <article className="step rv" data-i="0" data-title="Invoice & order">
+                <article className="step rv" data-i="0" data-title="Create a demo invoice">
                   <div className="step-top"><span className="step-num">01</span><h3>Invoice &amp; order</h3></div>
-                  <p>Your storefront or agent creates a signed order. SatsLoom mints a bolt12 offer, pins the amount, and opens a payment session with full event telemetry from the first byte.</p>
+                  <p>Create a demo invoice with an amount and memo. No BOLT12 offer is issued and no Bitcoin payment address is generated.</p>
                   <div className="artifact">
-                    <span className="inv-line">lno1qgsy9mm0d3s3x2fwp5k8xqzrh4t6u…vx0k2</span>
-                    <div style={{ color: "var(--faint)", marginTop: "6px" }}>bolt12 · 42,180 sats · order ord_9f3a</div>
+                    <span className="inv-line">demo invoice · sample ID</span>
+                    <div style={{ color: "var(--faint)", marginTop: "6px" }}>no BOLT12 offer · no payment address · no funds received</div>
                   </div>
                 </article>
 
-                <article className="step rv" data-i="1" data-title="Multi-path route scoring">
-                  <div className="step-top"><span className="step-num">02</span><h3>Multi-path route scoring</h3></div>
-                  <p>Candidate routes through the liquidity fabric are scored in parallel against latency, fee pressure, capacity headroom and historical reliability. Weak threads are dropped before a single sat moves.</p>
+                <article className="step rv" data-i="1" data-title="Sample route scoring">
+                  <div className="step-top"><span className="step-num">02</span><h3>Sample route scoring</h3></div>
+                  <p>The demo scores three hard-coded candidate routes using illustrative fees, capacities, latency, and exit-risk inputs. It has no network liquidity feed or historical reliability data.</p>
                   <div className="artifact">
                     <div className="mini-scores">
-                      <div className="mr win"><span>LQD-0x9e15</span><span className="bar"><i style={{ width: "97%" }}></i></span><span className="green">0.97</span></div>
-                      <div className="mr"><span>LQD-0xb7c1</span><span className="bar"><i style={{ width: "88%" }}></i></span><span>0.88</span></div>
-                      <div className="mr"><span>LQD-0x8f2e</span><span className="bar"><i style={{ width: "74%" }}></i></span><span>0.74</span></div>
+                      <div className="mr"><span>vtxo-fast</span><span>50 sat fee · 18 s · 100,000-sat sample capacity</span></div>
+                      <div className="mr"><span>lp-standard</span><span>250 sat fee · 45 s · 250,000-sat sample capacity</span></div>
+                      <div className="mr"><span>onchain-exit</span><span>500 sat fee · 600 s · 1,000,000-sat sample capacity</span></div>
                     </div>
                   </div>
                 </article>
 
-                <article className="step rv" data-i="2" data-title="Execute the best thread">
-                  <div className="step-top"><span className="step-num">03</span><h3>Execute the best thread</h3></div>
-                  <p>The winning path executes — splitting across multiple threads when a single channel can't carry the full amount. Atomic multi-part delivery: all parts settle, or none do.</p>
+                <article className="step rv" data-i="2" data-title="Simulate a route">
+                  <div className="step-top"><span className="step-num">03</span><h3>Simulate a route</h3></div>
+                  <p>The API records a simulated route outcome. There is no multi-path splitting, atomic payment, provider call, Bitcoin transaction, or VTXO transfer in this demo.</p>
                   <div className="artifact">
                     <div className="route-chips">
-                      <span className="hop"><b>NIGHTJAR</b></span><span className="amber">→</span>
-                      <span className="hop"><b>KEYSTONE</b></span><span className="amber">→</span>
-                      <span className="hop"><b>YOUR VAULT</b></span>
-                      <span className="hop split">split 62/38 · atomic</span>
+                      <span className="hop"><b>sample candidate</b></span><span className="amber">→</span>
+                      <span className="hop"><b>local state machine</b></span>
+                      <span className="hop split">simulation only · no broadcast</span>
                     </div>
                   </div>
                 </article>
 
-                <article className="step rv" data-i="3" data-title="Settle & emit events">
-                  <div className="step-top"><span className="step-num">04</span><h3>Settle as a VTXO, emit events</h3></div>
-                  <p>Payment lands as a VTXO inside a Taproot batch in your TAURUS vault — sub-second, off-chain, redeemable on-chain. Real-time events stream to your hooks the instant it does.</p>
+                <article className="step rv" data-i="3" data-title="Inspect demo events">
+                  <div className="step-top"><span className="step-num">04</span><h3>Inspect demo events</h3></div>
+                  <p>Server-Sent Events report changes to this API's simulated invoice state. They are not confirmations from a Bitcoin node or Tachi settlement network.</p>
                   <div className="artifact">
                     <div className="evt">
-                      event: <span className="k">payment.settled</span><br />
-                      data: {`{"order":"ord_9f3a","sats":`}<span className="k">42180</span>{`,"ms":291,"vtxo":"9ac2f1…"}`}
+                      event: <span className="k">invoice.settled</span><br />
+                      data: {`{"simulation":`}<span className="k">true</span>{`,"fundsMoved":false}`}
                     </div>
                   </div>
                 </article>
@@ -1213,32 +1197,32 @@ export function App() {
             <div className="sec-head">
               <div className="kicker">// 02 · PRIMITIVES</div>
               <h2 className="lm"><span>The threads we weave with.</span></h2>
-              <p className="sub rv">Four native Bitcoin primitives, zero intermediaries. Each one is a load-bearing thread in the fabric.</p>
+              <p className="sub rv">Architecture concepts and a separate opt-in Tachi SDK spike. No vault, deposit, or Bitcoin settlement is active in the public demo.</p>
             </div>
             <div className="stack">
               <article className="pcard" style={{ ["--i" as any]: 0 }}>
                 <div className="pcard-head">
                   <span className="pc-num">PRIM·01</span>
                   <span className="pc-name">TAURUS Vaults</span>
-                  <div className="pc-tags"><i>P2TR</i><i>NON-CUSTODIAL</i><i>KEYPATH SPEND</i></div>
+                  <div className="pc-tags"><i>CONCEPT</i><i>SDK SPIKE</i><i>NOT A LIVE VAULT</i></div>
                 </div>
                 <div className="pcard-grid">
                   <div>
-                    <h3>Deposits anchored in native Taproot.</h3>
+                    <h3>TAURUS integration research.</h3>
                     <p className="desc">
-                      Every merchant balance lives in a <b>P2TR vault controlled by your keys</b>. SatsLoom reads the fabric and routes — it never holds. Two leaves, one root: spend instantly via keypath, or walk away through the timelock leaf whenever you choose. Nothing wrapped, nothing bridged, nothing trusted.
+                      TAURUS vault construction and verification exist in the separate adapter spike. The demo API does not create merchant vaults, hold keys, accept deposits, or route balances. The diagram below is an architecture illustration, not an active vault.
                     </p>
                   </div>
                   <div>
                     <div className="vault-tree">
-                      <div className="vt-node root">root · bc1p…7q2f<small>taproot output</small></div>
+                      <div className="vt-node root">Vault concept<small>no address configured</small></div>
                       <div className="vt-stem"></div>
                       <div className="vt-branch">
-                        <div className="vt-node">keypath leaf<small>instant · your key</small></div>
-                        <div className="vt-node">timelock leaf<small>CSV 48h · unilateral</small></div>
+                        <div className="vt-node">key-path concept<small>parameters not configured</small></div>
+                        <div className="vt-node">timelock concept<small>no recovery path configured</small></div>
                       </div>
                     </div>
-                    <div className="vt-addr">deposit address: <b>bc1p9xk…loom7q2f</b></div>
+                    <div className="vt-addr">illustrative vault diagram · no deposit address configured</div>
                   </div>
                 </div>
               </article>
@@ -1247,27 +1231,27 @@ export function App() {
                 <div className="pcard-head">
                   <span className="pc-num">PRIM·02</span>
                   <span className="pc-name">VTXO Settlement</span>
-                  <div className="pc-tags"><i>OFF-CHAIN</i><i>SUB-SECOND</i><i>BATCHED</i></div>
+                  <div className="pc-tags"><i>INTEGRATION TARGET</i><i>NOT EXECUTED</i></div>
                 </div>
                 <div className="pcard-grid">
                   <div>
-                    <h3>Sub-second settlement, batched like cloth.</h3>
+                    <h3>VTXO settlement is not implemented.</h3>
                     <p className="desc">
-                      Payments settle as <b>VTXOs inside Taproot batch trees</b> — off-chain and instant, yet redeemable on-chain at any time. Your loom renews leaves automatically before expiry, so your sats never sleep and never need a counterparty's blessing to exist.
+                      VTXO handling is an integration target, not a live settlement path here. The API currently records simulated invoice and route state only; it does not create, transfer, or redeem VTXOs.
                     </p>
                   </div>
                   <div>
                     <div className="batch">
-                      <div className="batch-row"><div className="leaf" style={{ borderColor: "var(--amber)", color: "var(--gold)" }}>batch #812</div></div>
+                      <div className="batch-row"><div className="leaf" style={{ borderColor: "var(--amber)", color: "var(--gold)" }}>Illustrative batch</div></div>
                       <div className="batch-row">
                         <div className="leaf">vtxo</div>
                         <div className="leaf">vtxo</div>
-                        <div className="leaf mine">42,180 s · yours</div>
+                        <div className="leaf mine">sample item</div>
                         <div className="leaf">vtxo</div>
                         <div className="leaf">vtxo</div>
                         <div className="leaf">vtxo</div>
                       </div>
-                      <div className="batch-meta">renew in <i>33h 12m</i> · auto-renew <i>ON</i> · merkle depth 3</div>
+                      <div className="batch-meta">Diagram only · no VTXO, owner balance, batch ID, or renewal data exists</div>
                     </div>
                   </div>
                 </div>
@@ -1277,20 +1261,20 @@ export function App() {
                 <div className="pcard-head">
                   <span className="pc-num">PRIM·03</span>
                   <span className="pc-name">Sovereign Unilateral Exit</span>
-                  <div className="pc-tags"><i>NO CUSTODIAN</i><i>ON-CHAIN RECOURSE</i></div>
+                  <div className="pc-tags"><i>CONCEPT ONLY</i><i>NO EXIT IMPLEMENTED</i></div>
                 </div>
                 <div className="pcard-grid">
                   <div>
-                    <h3>Walk away with everything. Any time.</h3>
+                    <h3>Unilateral exit is an integration target.</h3>
                     <p className="desc">
-                      If loomd, a relay, or a liquidity provider ever misbehaves, you <b>sign the exit leaf, broadcast one transaction</b>, and your full balance lands back in your on-chain wallet. No support tickets. No withdrawal queues. No permission required — the script guarantees it.
+                      The adapter spike can construct and verify TAURUS-related artifacts in its test environment. This web demo does not create a live vault, sign an exit transaction, or broadcast to Bitcoin. Do not rely on this UI for recovery of funds.
                     </p>
                   </div>
                   <div className="exit-timeline">
-                    <div className="et-step"><i>1</i><div><b>Detect</b><span>relay silence or dispute observed by your node</span></div></div>
-                    <div className="et-step"><i>2</i><div><b>Sign exit leaf</b><span>taproot path spend, signed locally with your key</span></div></div>
-                    <div className="et-step"><i>3</i><div><b>Broadcast</b><span>single transaction to Bitcoin testnet / L1</span></div></div>
-                    <div className="et-step"><i>4</i><div><b>Recover</b><span>full balance confirms — unilaterally, ~6 blocks</span></div></div>
+                    <div className="et-step"><i>1</i><div><b>Monitor</b><span>not implemented in this demo</span></div></div>
+                    <div className="et-step"><i>2</i><div><b>Construct</b><span>no exit transaction is built here</span></div></div>
+                    <div className="et-step"><i>3</i><div><b>Sign / broadcast</b><span>no wallet or Bitcoin node is connected</span></div></div>
+                    <div className="et-step"><i>4</i><div><b>Recovery</b><span>no funds or recovery path are configured</span></div></div>
                   </div>
                 </div>
               </article>
@@ -1303,17 +1287,17 @@ export function App() {
                 </div>
                 <div className="pcard-grid">
                   <div>
-                    <h3>The web's 402, finally settling.</h3>
+                    <h3>HTTP 402 with a signed demo receipt.</h3>
                     <p className="desc">
-                      Autonomous agents don't fill checkout forms. SatsLoom speaks <b>native HTTP 402</b>: a resource demands sats, the agent signs a VTXO payment in a header, and the response returns with a verifiable receipt. Machine-speed commerce, human-grade custody.
+                      This sample challenge marks a local invoice as simulated and returns an HMAC-signed application receipt. No agent signs a Bitcoin payment, no funds are verified, and the receipt is not payment proof.
                     </p>
-                    <div className="tool-chips"><i>mcp · satsloom.pay</i><i>sse · payment.settled</i><i>webhook fan-out</i></div>
+                    <div className="tool-chips"><i>HTTP 402 demo</i><i>signed simulation receipt</i><i>no funds moved</i></div>
                   </div>
                   <div className="mini-term">
-                    <span className="h">HTTP/1.1 402</span> Payment Required<br />
-                    <span className="h">X-PAYMENT-ACCEPT:</span> <span className="v">sats.vtxo; net=bitcoin; max=5000</span><br />
-                    <span className="h">HTTP/1.1 200</span> OK <span className="dim">· 287 ms</span><br />
-                    <span className="h">X-PAYMENT-RESPONSE:</span> <span className="ok">receipt=vtxo:9ac2f1… ✓</span>
+                    <span className="h">HTTP/1.1 402</span> Payment Required · demo<br />
+                    <span className="h">WWW-Authenticate:</span> <span className="v">SatsLoom-Demo · simulation=true</span><br />
+                    <span className="h">HTTP/1.1 200</span> OK · sample resource<br />
+                    <span className="h">Authorization:</span> <span className="ok">signed demo receipt · not payment proof</span>
                   </div>
                 </div>
               </article>
@@ -1326,13 +1310,13 @@ export function App() {
           <div className="wrap">
             <div className="sec-head">
               <div className="kicker">// 03 · ROUTE LAB</div>
-              <h2 className="lm"><span>Score the fabric. Execute the best thread.</span></h2>
-              <p className="sub rv">A live slice of loomd's route scorer. Tune the payment, pick a priority, and watch the fabric re-rank itself.</p>
+              <h2 className="lm"><span>Score sample routes. No payment is executed.</span></h2>
+              <p className="sub rv">An in-browser scoring exercise using hard-coded candidate capacities, fees, and estimated times. It is not a live quote and never sends a payment.</p>
             </div>
             <div className="lab panel rv">
               <div className="lab-controls">
                 <div>
-                  <span className="lab-label">Payment amount</span>
+                  <span className="lab-label">Sample amount</span>
                   <div className="amount-val">
                     <span>{fmt(labAmount)}</span>
                     <small>sats</small>
@@ -1356,7 +1340,7 @@ export function App() {
                   />
                 </div>
                 <div>
-                  <span className="lab-label">Routing priority</span>
+                  <span className="lab-label">Scoring preference</span>
                   <div className="seg">
                     <button className={labMode === "speed" ? "act" : ""} onClick={() => setLabMode("speed")}>
                       Speed
@@ -1365,12 +1349,12 @@ export function App() {
                       Cost
                     </button>
                     <button className={labMode === "reliability" ? "act" : ""} onClick={() => setLabMode("reliability")}>
-                      Reliable
+                      Exit risk
                     </button>
                   </div>
                 </div>
                 <button className="btn primary exec-btn" onClick={executeLabRoute} disabled={labExecuting}>
-                  ⚡ Execute best route
+                  ⚡ Score sample route
                 </button>
                 <div className="lab-status">{labStatus}</div>
                 <div className={`lab-progress ${labProgressActive ? "go" : ""}`}>
@@ -1379,11 +1363,11 @@ export function App() {
               </div>
               <div className="routes-wrap">
                 <div className="routes-head">
-                  <span>route · hops</span>
-                  <span>score</span>
-                  <span>latency</span>
-                  <span>fee est.</span>
-                  <span>status</span>
+                  <span>candidate · example</span>
+                  <span>model score</span>
+                  <span>sample time</span>
+                  <span>sample fee</span>
+                  <span>capacity fit</span>
                 </div>
                 <div id="routeList">
                   {scoredRoutes.map((r, i) => (
@@ -1391,8 +1375,8 @@ export function App() {
                       <div className="rr-id">
                         {i === 0 ? "▸ " : ""}
                         {r.id}
-                        {!r.capOK && <span className="rr-flag">SPLIT REQ</span>}
-                        <small>{r.hops} · cap {fmt(r.cap)}</small>
+                        {!r.capOK && <span className="rr-flag">OVER SAMPLE CAPACITY</span>}
+                        <small>{r.hops} · sample cap {fmt(r.cap)} sats</small>
                       </div>
                       <div className="rr-score">
                         <div className="rr-bar">
@@ -1400,23 +1384,23 @@ export function App() {
                         </div>
                         <b>{r.score.toFixed(2)}</b>
                       </div>
-                      <div className="rr-metric">{r.ms} ms</div>
-                      <div className="rr-metric">~{fmt(r.feeSats)} s</div>
+                      <div className="rr-metric">{r.seconds} s</div>
+                      <div className="rr-metric">{fmt(r.feeSats)} sats</div>
                       <div className="rr-metric" style={{ color: r.capOK ? "var(--settled)" : "var(--alert)" }}>
-                        {r.capOK ? "ready" : "degraded"}
+                        {r.capOK ? "within model" : "over model cap"}
                       </div>
                     </div>
                   ))}
                 </div>
                 {labResult && (
                   <div className="lab-result show">
-                    <span>✓ SETTLED</span>
+                    <span>SIMULATION</span>
                     <span className="dim">·</span>
-                    <span>{fmt(labResult.amount)} sats</span>
+                    <span>{fmt(labResult.amount)} sample sats</span>
                     <span className="dim">·</span>
-                    <span>{labResult.ms} ms</span>
+                    <span>{labResult.seconds} s model time</span>
                     <span className="dim">·</span>
-                    <span className="dim">receipt vtxo:{Math.random().toString(16).slice(2, 8)}…</span>
+                    <span className="dim">{labResult.routeId} · no receipt or transaction</span>
                   </div>
                 )}
               </div>
@@ -1429,24 +1413,24 @@ export function App() {
           <div className="wrap">
             <div className="sec-head">
               <div className="kicker">// 04 · X402 GATEWAY</div>
-              <h2 className="lm"><span>HTTP 402, done properly.</span></h2>
+              <h2 className="lm"><span>Explore an HTTP 402 demo.</span></h2>
             </div>
             <div className="x-grid">
               <div>
                 <p className="sub rv" style={{ marginTop: 0 }}>
-                  Payments become a transport concern. Agents discover price in the response, settle in a single signed header, and carry a cryptographic receipt back to whoever sent them.
+This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt. The receipt proves only that this app issued a simulation token; it does not prove payment or verify funds.
                 </p>
                 <div className="x-list rv d1">
-                  <div className="x-item"><i>01</i><div><b>No accounts, no API keys</b><span>Price is quoted in the 402 itself. Any agent, any stack, pays per request.</span></div></div>
-                  <div className="x-item"><i>02</i><div><b>Signed, not trusted</b><span>The X-PAYMENT header carries a signed VTXO transfer — verifiable by anyone.</span></div></div>
-                  <div className="x-item"><i>03</i><div><b>Receipts in-band</b><span>X-PAYMENT-RESPONSE returns the settlement proof with the payload. No polling.</span></div></div>
-                  <div className="x-item"><i>04</i><div><b>Streams to your stack</b><span>Every x402 settle fans out as payment.settled over SSE and webhooks.</span></div></div>
+                  <div className="x-item"><i>01</i><div><b>HTTP 402 challenge</b><span>The demo returns a sample 50-sat invoice challenge; no BOLT11/BOLT12 payment request is created.</span></div></div>
+                  <div className="x-item"><i>02</i><div><b>Simulated agent action</b><span>The demo endpoint marks the sample invoice paid in local application state only.</span></div></div>
+                  <div className="x-item"><i>03</i><div><b>Signed demo receipt</b><span>An HMAC protects the receipt from tampering; it is not a Bitcoin payment proof.</span></div></div>
+                  <div className="x-item"><i>04</i><div><b>No funds moved</b><span>Use a real payment processor and verified settlement adapter before accepting payments.</span></div></div>
                 </div>
               </div>
               <div className="x-term rv d2">
                 <div className="p-head">
                   <div className="p-sq"><i></i><i></i><i></i></div>
-                  <span className="p-title">agent ⇄ merchant · per-request settlement</span>
+                  <span className="p-title">agent ⇄ demo API · simulated flow</span>
                 </div>
                 <div className="x-body">
                   {X402_LINES.slice(0, xStep).map((l, idx) => (
@@ -1467,35 +1451,35 @@ export function App() {
           <div className="wrap">
             <div className="sov-grid">
               <div>
-                <div className="sov-line lm"><span><em>No</em> wrapped tokens.</span></div>
-                <div className="sov-line lm"><span><em>No</em> cross-chain bridges.</span></div>
-                <div className="sov-line lm"><span><em>No</em> custodians.<small>just you, your keys, and a loom.</small></span></div>
+                <div className="sov-line lm"><span><em>No</em> Bitcoin received.</span></div>
+                <div className="sov-line lm"><span><em>No</em> active vault.</span></div>
+                <div className="sov-line lm"><span><em>No</em> recovery guarantee.<small>this is a simulation prototype.</small></span></div>
               </div>
               <aside className="sov-panel panel rv">
-                <h4>WHY IT MATTERS</h4>
+                <h4>IMPLEMENTATION BOUNDARY</h4>
                 <p>
-                  Every IOU in a payment path is a failure waiting for a weekend. SatsLoom settles exclusively in assets Bitcoin itself can verify — taproot vaults, VTXO batches, on-chain exits. The trust surface is the script, and the script is yours to read.
+                  The repository contains route-scoring and integration examples, not a production Bitcoin payment rail. It does not currently take custody, execute VTXO transfers, verify on-chain payments, or provide a usable unilateral-exit flow.
                 </p>
                 <div className="sov-chips">
-                  <i>100% BTC collateral</i><i>0 IOUs</i><i>0 trust assumptions</i>
+                  <i>demo state only</i><i>no funds moved</i><i>integration work remains</i>
                 </div>
               </aside>
             </div>
-            <div className="kicker">// UNILATERAL EXIT MECHANISM</div>
+            <div className="kicker">// EXIT FLOW CONCEPT · NOT IMPLEMENTED</div>
             <div className="exit-strip">
               <div className="exit-cell rv d1">
                 <span className="ec-idx">E·1</span><h4>Observe</h4>
-                <p>loomd, a relay, or an LSP stalls. Your node notices the silence before your customers do.</p>
+                <p>Recovery-flow concept only. The demo does not monitor a relay, LSP, or production payment route.</p>
                 <div className="blocks"><i className="hot"></i><i></i><i></i><i></i><i></i><i></i></div>
               </div>
               <div className="exit-cell rv d2">
                 <span className="ec-idx">E·2</span><h4>Broadcast</h4>
-                <p>Sign the exit leaf with your key. One transaction goes to Bitcoin testnet / L1 — no negotiation, no counterparty.</p>
+                <p>This demo does not sign or broadcast a unilateral exit transaction. The path shown is illustrative only.</p>
                 <div className="blocks"><i className="hot"></i><i className="hot"></i><i></i><i></i><i></i><i></i></div>
               </div>
               <div className="exit-cell rv d3">
                 <span className="ec-idx">E·3</span><h4>Recover</h4>
-                <p>Full balance confirms back into a wallet you control. The loom can burn; the cloth is yours.</p>
+                <p>No funds are held by this demo. No recovery transaction is created or confirmed here.</p>
                 <div className="blocks"><i className="done"></i><i className="done"></i><i className="done"></i><i className="done"></i><i className="done"></i><i className="done"></i></div>
               </div>
             </div>
@@ -1507,33 +1491,33 @@ export function App() {
           <div className="wrap">
             <div className="sec-head">
               <div className="kicker">// 05 · SELF-HOST</div>
-              <h2 className="lm"><span>One binary. Your keys. Your loom.</span></h2>
+              <h2 className="lm"><span>Run the TypeScript demo locally.</span></h2>
             </div>
             <div className="host-grid">
               <div>
                 <p className="sub rv" style={{ marginTop: 0 }}>
-                  SatsLoom ships as a single static binary or a hardened container. Point it at a Tachi AEL node, load your vault key, and start weaving.
+                  This repository is a React/Vite frontend and Fastify/Node.js API. The demo backend uses in-memory state on Vercel and a single-process JSON file locally; neither is production-grade shared persistence. Payment endpoints are simulation-only.
                 </p>
                 <ul className="check-list rv d1">
-                  <li><span><b>Keys never leave your host</b> — loomd routes, it doesn't hold withdrawal secrets.</span></li>
-                  <li><span><b>Any Tachi AEL node</b> works as the execution substrate — testnet, signet, or local.</span></li>
-                  <li><span><b>REST + SSE event stream</b> with webhook fan-out for every payment state.</span></li>
-                  <li><span><b>MIT licensed.</b> Audit it, fork it, run it air-gapped if you like.</span></li>
+                  <li><span><b>Node.js 22.6+</b> and npm are used by the checked-in scripts.</span></li>
+                  <li><span><b>API: 3001 · Web: 5174</b> when started with <code>npm run dev</code>.</span></li>
+                  <li><span><b>Demo mode is not payment processing.</b> Production defaults disable simulated mutations.</span></li>
+                  <li><span><b>License is not declared</b> in this repository; no MIT license is included.</span></li>
                 </ul>
                 <div className="req-chips rv d2">
-                  <i>bitcoind ≥ 27</i><i>tachi-ael endpoint</i><i>1 vCPU · 1 GB RAM</i><i>~48 MB image</i>
+                  <i>Node.js ≥ 22.6</i><i>npm workspaces</i><i>Fastify API</i><i>Vite + React</i>
                 </div>
               </div>
               <div className="code-panel rv d2">
                 <div className="code-tabs">
                   <button className={codeTab === "t-docker" ? "act" : ""} onClick={() => setCodeTab("t-docker")}>
-                    docker-compose.yml
+                    local demo
                   </button>
                   <button className={codeTab === "t-bare" ? "act" : ""} onClick={() => setCodeTab("t-bare")}>
-                    bare metal
+                    API smoke test
                   </button>
                   <button className={codeTab === "t-conf" ? "act" : ""} onClick={() => setCodeTab("t-conf")}>
-                    config.yaml
+                    environment
                   </button>
                   <button
                     className={`copy code-copy ${copiedCode ? "done" : ""}`}
@@ -1551,48 +1535,33 @@ export function App() {
                   </button>
                 </div>
                 <pre className={codeTab === "t-docker" ? "act" : ""} id="t-docker">
-                  <span className="c"># bring up loomd against your Tachi AEL node</span><br />
-                  <span className="k">services</span>:<br />
-                  {"  "}<span className="k">satsloom</span>:<br />
-                  {"    "}<span className="k">image</span>: <span className="s">ghcr.io/satsloom/loomd:latest</span><br />
-                  {"    "}<span className="k">ports</span>: [<span className="s">"8402:8402"</span>]<br />
-                  {"    "}<span className="k">environment</span>:<br />
-                  {"      "}<span className="k">SATSLOOM_NETWORK</span>: <span className="s">bitcoin</span><br />
-                  {"      "}<span className="k">SATSLOOM_TACHI_ENDPOINT</span>: <span className="s">https://ael.mynode:9443</span><br />
-                  {"      "}<span className="k">SATSLOOM_VAULT_POLICY</span>: <span className="s">taurus.p2tr</span><br />
-                  {"    "}<span className="k">volumes</span>:<br />
-                  {"      "}- <span className="s">./loomdata:/var/lib/satsloom</span><br />
-                  {"    "}<span className="k">restart</span>: <span className="s">unless-stopped</span>
+                  <span className="c"># from the repository root · local demo only</span><br />
+                  $ npm ci<br />
+                  $ npm test<br />
+                  $ npm run dev<br />
+                  <br />
+                  <span className="c"># API health (local)</span><br />
+                  $ curl http://localhost:3001/api/health<br />
+                  <span className="s">{`{"paymentExecution":"simulated-only","sharedDatabase":false}`}</span>
                 </pre>
                 <pre className={codeTab === "t-bare" ? "act" : ""} id="t-bare">
-                  <span className="c"># build from source — rust toolchain required</span><br />
-                  $ git clone https://github.com/satsloom/loomd<br />
-                  $ cd loomd && cargo build --release<br />
-                  $ ./target/release/loomd \<br />
-                  {"    "}--network bitcoin \<br />
-                  {"    "}--ael-endpoint https://ael.mynode:9443 \<br />
-                  {"    "}--vault-policy taurus.p2tr \<br />
-                  {"    "}--listen 0.0.0.0:8402<br />
+                  <span className="c"># from the repository root · TypeScript demo only</span><br />
+                  $ npm ci<br />
+                  $ npm run dev<br />
                   <br />
-                  <span className="c"># verify, then weave</span><br />
-                  $ curl localhost:8402/v1/health<br />
-                  <span className="s">{`{"status":"weaving","routes":1284,"vault":"armed"}`}</span>
+                  <span className="c"># in another terminal</span><br />
+                  $ npm run smoke:api -- http://localhost:3001<br />
+                  <br />
+                  <span className="c"># no Rust daemon, wallet, or live settlement service is included</span>
                 </pre>
                 <pre className={codeTab === "t-conf" ? "act" : ""} id="t-conf">
-                  <span className="k">router</span>:<br />
-                  {"  "}<span className="k">strategy</span>: <span className="s">weighted-weave</span><br />
-                  {"  "}<span className="k">max_paths</span>: <span className="s">3</span><br />
-                  {"  "}<span className="k">score_window</span>: <span className="s">30s</span><br />
-                  <span className="k">vault</span>:<br />
-                  {"  "}<span className="k">kind</span>: <span className="s">taurus</span><br />
-                  {"  "}<span className="k">exit_leaf_timelock</span>: <span className="s">48h</span><br />
-                  {"  "}<span className="k">auto_renew_vtxos</span>: <span className="s">true</span><br />
-                  <span className="k">events</span>:<br />
-                  {"  "}<span className="k">sse</span>: <span className="s">enabled</span><br />
-                  {"  "}<span className="k">webhook</span>: <span className="s">https://merchant.example/hooks/satsloom</span><br />
-                  <span className="k">x402</span>:<br />
-                  {"  "}<span className="k">enabled</span>: <span className="s">true</span><br />
-                  {"  "}<span className="k">max_sats_per_request</span>: <span className="s">5000</span>
+                  <span className="c"># local demo settings · no real payment support</span><br />
+                  <span className="k">SATSLOOM_DEMO_MODE</span>=<span className="s">true</span><br />
+                  <span className="k">SATSLOOM_PROOF_SECRET</span>=<span className="s">&lt;random-secret-for-demo-receipts&gt;</span><br />
+                  <span className="k">SATSLOOM_ADMIN_TOKEN</span>=<span className="s">&lt;required-for-private-API-in-production&gt;</span><br />
+                  <span className="k">SATSLOOM_WEBHOOK_ALLOWED_ORIGINS</span>=<span className="s">https://merchant.example</span><br />
+                  <span className="k">SATSLOOM_WEBHOOK_SECRET</span>=<span className="s">&lt;webhook-signing-secret&gt;</span><br />
+                  <span className="c"># Allow-listed HTTPS webhooks only; exact origins only.</span>
                 </pre>
               </div>
             </div>
@@ -1607,14 +1576,14 @@ export function App() {
               <h2 className="lm"><span>The fabric, measured.</span></h2>
             </div>
             <dl className="spec-grid rv">
-              <div className="spec"><dt>Settlement unit</dt><dd><b>VTXO</b> batches · sub-second</dd></div>
-              <div className="spec"><dt>Chain anchor</dt><dd>Bitcoin Taproot <b>P2TR</b></dd></div>
-              <div className="spec"><dt>Custody</dt><dd><b>Self</b> · keypath + unilateral exit</dd></div>
-              <div className="spec"><dt>Execution layer</dt><dd><b>Tachi AEL</b> · agentic</dd></div>
-              <div className="spec"><dt>Median settle</dt><dd><b>340 ms</b> invoice→receipt</dd></div>
-              <div className="spec"><dt>Fee p50</dt><dd><b>0.021%</b> of routed amount</dd></div>
-              <div className="spec"><dt>Interfaces</dt><dd>REST · SSE · <b>x402</b> headers</dd></div>
-              <div className="spec"><dt>License</dt><dd><b>MIT</b> · single binary</dd></div>
+              <div className="spec"><dt>API</dt><dd><b>Fastify / Node.js</b> · TypeScript</dd></div>
+              <div className="spec"><dt>Frontend</dt><dd><b>React / Vite</b></dd></div>
+              <div className="spec"><dt>Settlement</dt><dd><b>Simulation only</b> · no funds moved</dd></div>
+              <div className="spec"><dt>Route model</dt><dd>Sample candidates · no live liquidity</dd></div>
+              <div className="spec"><dt>Payment proof</dt><dd><b>Signed demo receipt</b> · not a Bitcoin proof</dd></div>
+              <div className="spec"><dt>Persistence</dt><dd>Local JSON / Vercel process memory</dd></div>
+              <div className="spec"><dt>Interfaces</dt><dd>REST · SSE · <b>x402 demo</b></dd></div>
+              <div className="spec"><dt>License</dt><dd>Not declared in this repository</dd></div>
             </dl>
           </div>
         </section>
@@ -1634,7 +1603,7 @@ export function App() {
                 </svg>
                 SATS<b>LOOM</b>
               </a>
-              <p>Self-hosted, self-custodial Bitcoin settlement router and x402 gateway — woven on Tachi's Agentic Execution Layer.</p>
+              <p>TypeScript web and API demo. Payment mutations are simulated; production Bitcoin settlement and shared persistence are not implemented.</p>
             </div>
             <div className="foot-col">
               <h5>Protocol</h5>
@@ -1758,30 +1727,30 @@ export function App() {
                   {/* Overview Stats */}
                   <div className="metric-cards-grid" style={{ marginBottom: "24px" }}>
                     <div className="stat-card">
-                      <span className="stat-label">Invoices Created</span>
+                      <span className="stat-label">Demo Invoices</span>
                       <div className="stat-value">{overview?.invoiceCount ?? 0}</div>
-                      <span className="stat-sub">Across all checkout sessions</span>
+                      <span className="stat-sub">In current API instance only</span>
                     </div>
                     <div className="stat-card accent">
-                      <span className="stat-label">Settled Revenue</span>
+                      <span className="stat-label">Simulated Settlements</span>
                       <div className="stat-value">
                         {Number(overview?.settledSats ?? 0).toLocaleString()} <span className="unit">sats</span>
                       </div>
-                      <span className="stat-sub">Off-chain VTXO & LP settlement</span>
+                      <span className="stat-sub">Demo state only · no funds received</span>
                     </div>
                     <div className="stat-card warning">
-                      <span className="stat-label">Pending Invoices</span>
+                      <span className="stat-label">Simulated Pending Amount</span>
                       <div className="stat-value">
                         {Number(overview?.pendingSats ?? 0).toLocaleString()} <span className="unit">sats</span>
                       </div>
-                      <span className="stat-sub">Awaiting customer payment</span>
+                      <span className="stat-sub">No payment has been detected</span>
                     </div>
                     <div className="stat-card info">
-                      <span className="stat-label">Routing Pool Liquidity</span>
+                      <span className="stat-label">Sample Routing Capacity</span>
                       <div className="stat-value">
-                        {Number(overview?.routingLiquiditySats ?? 1350000).toLocaleString()} <span className="unit">sats</span>
+                        {Number(overview?.simulatedRoutingLiquiditySats ?? 1350000).toLocaleString()} <span className="unit">sats</span>
                       </div>
-                      <span className="stat-sub">Available float capacity</span>
+                      <span className="stat-sub">Illustrative only · not live liquidity</span>
                     </div>
                   </div>
 
@@ -1789,8 +1758,8 @@ export function App() {
                   <div className="create-invoice-card">
                     <div className="card-header-row">
                       <div>
-                        <h3>Generate Merchant Invoice</h3>
-                        <p className="subtext">Issue instant native-sat invoices with automatic VTXO route quotation</p>
+                        <h3>Generate Demo Invoice</h3>
+                        <p className="subtext">No payment address or live route quote is issued</p>
                       </div>
                     </div>
 
@@ -1818,12 +1787,12 @@ export function App() {
                       </label>
 
                       <label className="form-field webhook-field">
-                        <span>Webhook URL (Optional)</span>
+                        <span>Allow-listed HTTPS webhook (optional)</span>
                         <input
                           type="url"
                           value={webhookUrl}
                           onChange={(e) => setWebhookUrl(e.target.value)}
-                          placeholder="https://mysite.com/webhook"
+                          placeholder="https://merchant.example/webhook"
                         />
                       </label>
 
@@ -1844,14 +1813,14 @@ export function App() {
                           <h2>{Number(invoice.amountSats).toLocaleString()} SATS</h2>
                           <p className="invoice-meta-sub">
                             ID: <code>{invoice.id}</code> • Status:{" "}
-                            <strong className={`status-pill ${invoice.status}`}>{invoice.status.toUpperCase()}</strong> • Lifecycle:{" "}
+                            <strong className={`status-pill ${invoice.status}`}>{invoice.status.toUpperCase()}</strong> · simulated • Lifecycle:{" "}
                             <strong>{settlement?.lifecycle ?? invoice.lifecycle}</strong>
                           </p>
                         </div>
 
                         <div className="invoice-header-actions">
                           <button className="btn-qr-view" onClick={() => setShowCheckoutModal(true)}>
-                            📱 View Customer QR Code
+                            📄 View Demo Checkout
                           </button>
                           <button
                             className="btn-pay-action"
@@ -1874,7 +1843,7 @@ export function App() {
                         <span className={`stream-dot ${eventsConnected ? "connected" : "connecting"}`}></span>
                         <span>
                           Server-Sent Events:{" "}
-                          {eventsConnected ? "Live Real-Time Stream Connected" : "Connecting to EventStream..."}
+                          {eventsConnected ? "Demo event stream connected" : "Connecting to demo event stream..."}
                         </span>
                       </div>
 
@@ -1896,12 +1865,12 @@ export function App() {
                       {settlement?.settlement && (
                         <div className="settlement-receipt-card">
                           <div className="receipt-header">
-                            <span className="receipt-title">Settlement Verification Receipt</span>
-                            <span className="simulation-tag">Tachi Regtest Simulation</span>
+                            <span className="receipt-title">Simulated Settlement Record</span>
+                            <span className="simulation-tag">Simulation · no funds moved</span>
                           </div>
                           <div className="receipt-grid">
                             <div>
-                              <span className="receipt-label">Settlement TxID:</span>
+                              <span className="receipt-label">Demo settlement ID:</span>
                               <code>{settlement.settlement.txid ?? "Pending"}</code>
                             </div>
                             <div>
@@ -1948,7 +1917,7 @@ export function App() {
           invoice={invoice}
           onClose={() => setShowCheckoutModal(false)}
           onSimulatePay={simulatePayment}
-          isPaid={isPaid}
+          isSimulated={isSimulated}
         />
       )}
     </div>

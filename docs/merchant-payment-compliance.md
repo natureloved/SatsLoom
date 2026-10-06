@@ -1,16 +1,25 @@
-# Merchant Payment Track Compliance
+# Merchant payment capability and compliance status
 
-| Requirement | SatsLoom Status | Implementation Evidence |
-| :--- | :--- | :--- |
-| **Invoice generation** | Implemented (Full) | `POST /api/invoices`, `POST /api/checkout/session`, BIP21 QR code generator, live 15-min countdown timer, and customer checkout modal |
-| **Real-time payment confirmation** | Implemented (Full) | Server-Sent Events (`/api/invoices/:id/events`) stream instant state updates to frontend, plus asynchronous HTTP webhook callbacks (`x-satsloom-event: payment.confirmed`) dispatched to merchant endpoints |
-| **Transactions and refunds dashboard** | Implemented (Full) | Filterable, searchable transaction and refund ledger, one-click refund flows, cryptographic JSON inspector, and webhook delivery logs |
-| **Self-hosted / open-source deployment** | Implemented (Full) | Turnkey `docker-compose.yml`, `Dockerfile.api`, `Dockerfile.web`, persistent storage (`data/satsloom.json`), and one-command `npm run dev` |
-| **E-commerce plugin or integration** | Implemented (Full) | `@satsloom/ecommerce` SDK client, drop-in integration sample code, and interactive **SatsShop** e-commerce hardware store with one-click checkout |
-| **Payout and liquidity management** | Implemented (Full) | Real-time liquidity tracker (VTXO, LP Float, Reserved), fee ceilings, cold storage payout sweep queue, and liquidity safety thresholds |
+This document describes the checked-in demo, not a production payment service. **The demo does not accept, verify, send, refund, or settle Bitcoin payments.** Do not use simulated status to fulfill real orders or represent revenue.
 
----
+| Capability | Current status | Details |
+|---|---|---|
+| Invoice/session creation | Demo only | Creates local invoice state and a working frontend hash checkout route. Does not create BOLT11/BOLT12 invoices, BIP21 URIs, payment addresses, or QR codes. |
+| Customer payment detection | Not implemented | The `simulate-payment` endpoint changes application state and is explicitly marked as simulation. No chain, Lightning, or Tachi payment watcher is connected. |
+| Route quotation | Illustrative only | Three hard-coded sample route candidates are used. Capacities and fees are not live liquidity. |
+| Route selection | Implemented in the state machine | Selects one eligible route. Multi-path payment splitting and atomic multi-route execution are not implemented. |
+| Route fallback | Narrow state-machine behavior | An unavailable pre-execution route may be replaced. Execution retries require an explicit safe-to-retry error; ambiguous failures are not retried. The public API executor is simulation-only. |
+| Bitcoin/Tachi settlement | Not implemented in public API | The demo does not call the Tachi adapter to transfer funds, broadcast a Bitcoin transaction, or confirm a VTXO. |
+| Refunds and payouts | Simulated records only | No refund or payout transaction is created or broadcast. |
+| x402 | Signed simulation receipt only | HMAC signature protects a demo token from modification. The receipt does not verify payment or provide a Bitcoin preimage/transaction proof. |
+| Server-Sent Events | Implemented for app state | Events reflect in-process invoice state changes; they are not blockchain confirmation events. |
+| Webhooks | Best-effort optional delivery | Requires exact HTTPS origin allow-list and a secret; redirects are rejected and the request is signed. There is no durable outbox/retry queue. |
+| Persistence | Local/demo only | Atomic JSON rename is single-process; Vercel defaults to memory. No shared transactional store is configured. |
 
-## Cryptographic Transparency: Cooperative VTXO Aggregation
+## Before accepting real customer funds
 
-The public `@tachibtc/taurus-vault-core` SDK exposes user signing, but KDHT node signature aggregation is documented as an out-of-band network operation. SatsLoom chooses cryptographic honesty: we demonstrate live TAURUS vault construction, validator discovery, and user PSBT signing on Tachi regtest, while explicitly labeling cooperative settlement execution as a **degraded simulation mode** across the API and UI.
+A production merchant integration still needs, at minimum: a selected Bitcoin/Tachi network, an actual payment request/address integration, verified payment detection, a settlement adapter with explicit retry safety, transactional shared storage, durable idempotency and webhook delivery, authenticated merchant tenancy, operational monitoring, and security/compliance review. Until then, keep `SATSLOOM_DEMO_MODE=false` in production and do not treat a simulated `confirmed` or `settled` state as proof of payment.
+
+## Webhook receiver verification
+
+For accepted webhook requests, the API sends `x-satsloom-signature: sha256=<hex>` computed as HMAC-SHA256 over the exact raw request body, using `SATSLOOM_WEBHOOK_SECRET`. Receivers should compare signatures in constant time and reject stale/replayed delivery IDs according to their own policy.

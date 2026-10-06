@@ -1,91 +1,86 @@
 # SatsLoom
 
-**SatsLoom** is a self-hosted Bitcoin merchant settlement router and x402 payment gateway built on **Tachi's Agentic Execution Layer**, TAURUS vaults, and VTXO architecture.
+SatsLoom is a TypeScript/Node.js and React demonstration of a merchant-invoice state machine, deterministic single-route scoring, and an HTTP 402-style agent workflow. **The public demo is not a Bitcoin payment processor.** Invoice confirmation, settlement, refunds, payouts, liquidity, and x402 agent-pay are simulated records; no sats are received, verified, transferred, refunded, or broadcast.
 
-A merchant creates a native-sat invoice, shares a BIP21 QR code, compares liquidity settlement routes, and experiences deterministic selection with automatic fallback when the preferred route becomes unavailable. SatsLoom also acts as a native **x402 (HTTP 402 Payment Required)** gateway for autonomous AI agents paying per API request in native sats.
+## Status and limitations
 
----
+- The API returns `simulation: true` on simulated flows and uses a degraded mode.
+- Checkout does not issue a BOLT11/BOLT12 invoice, Bitcoin payment URI, payment address, or QR code. It provides an app checkout link and an explicit simulation button.
+- Route quotes use hard-coded sample capacities and fees. The router selects one route; multi-path splitting and atomic multi-route delivery are not implemented.
+- The domain package records a fallback after an explicit safe-to-retry route failure. An ambiguous execution error is not retried, because the first attempt may have moved funds.
+- The x402 sandbox returns a short-lived HMAC-signed **demo receipt**. The signature prevents tampering; it is not a Bitcoin payment proof or an external settlement verification.
+- The Tachi adapter and `scripts/spike-tachi.ts` are optional integration work. The public API does not query Tachi or call vault, deposit, transfer, or broadcast methods. SDK dependencies are isolated to the development spike, which can contact regtest services and should be reviewed before enabling any mutating option.
+- Local API state is written to a single-process JSON file using an atomic rename. On Vercel it is process-memory only. Neither is shared, transactional, or reliable for multi-instance production use; use a managed database before relying on durable state.
+- Outgoing webhooks are disabled unless the API has an exact HTTPS origin allow-list and a signing secret. At delivery time, the hostname is resolved and pinned to public IPv4 addresses to reduce DNS-rebinding SSRF risk; redirects are not followed and requests include an HMAC signature.
+- Production defaults disable simulated payment mutations. Setting `SATSLOOM_DEMO_MODE=true` explicitly enables simulations only; it does not enable real payments.
+- The optional Tachi SDK spike currently pulls development-only packages with unresolved high-severity npm audit advisories and no upstream automatic fix. These dependencies are not imported by the production API; keep the spike isolated to disposable regtest data and credentials.
+- This repository does not include a license file or declare a license.
 
-## Current Verified Status
+## Run locally
 
-- `npm run spike:tachi` is verified against live Tachi regtest (`https://rpc-regtest.tachibtc.com`):
-  - Fetches **7 online network validators**.
-  - Constructs Taproot **TAURUS vaults** with cooperative and unilateral exit script leaves.
-  - Verifies `verifyVaultP2tr` on-chain script validity.
-  - Prepares and signs user-side Taproot Schnorr PSBTs with a **1008-block CSV relative timelock** emergency exit guarantee.
-- **Cryptographic Transparency**: KDHT quorum partial signature aggregation is an out-of-band network protocol in the public SDK. Rather than making false claims of cooperative broadcasting on regtest, cooperative settlement is executed in a transparently labeled **Degraded / Simulated Mode** with `simulation: true` in API envelopes.
+Requirements: Node.js 22.6 or newer and npm.
 
----
-
-## Key Features
-
-1. **Customer Checkout Experience**: BIP21 QR code generation, 15-minute live expiration countdown timer, satoshi & USD conversions, and instant SSE state transitions.
-2. **Multi-Path Settlement Router**: Multi-factor scoring taking into account fees, latency, capacity, and timelock exit risk across VTXO off-chain, Liquidity Provider (LP), and TAURUS on-chain exit paths.
-3. **Automated Fallback Engine**: If a preferred VTXO route is congested or invalidated, the state machine automatically fails over to the next best route without failing the merchant's customer order.
-4. **SatsShop E-Commerce Showcase**: Interactive demo storefront showcasing drop-in checkout integration via `@satsloom/ecommerce`.
-5. **x402 AI Agent Sandbox**: Real-time HTTP 402 challenge negotiation and micropayment settlement for autonomous AI agents.
-6. **Tachi Protocol Telemetry**: Live inspection of network validators, TAURUS P2TR taproot leaves, and block explorer links.
-7. **Treasury Ledger & Webhooks**: Searchable transaction history, one-click refunds, cold storage payout sweeps, and webhook dispatching.
-8. **Turnkey Self-Hosting**: `docker-compose.yml` for 1-click deployment with persistent JSON storage.
-
----
-
-## Run Locally
-
-```powershell
-# 1. Install dependencies
-npm install
-
-# 2. Run unit and integration tests
+```sh
+npm ci
 npm test
-
-# 3. Verify live Tachi Regtest connectivity & TAURUS vault construction
-npm run spike:tachi
-
-# 4. Launch API (3001) and Web UI (5174)
+npm run typecheck
+npm run build
 npm run dev
 ```
 
-Open **http://localhost:5174** in your browser.
+The development script starts the API at `http://localhost:3001` and the web app at `http://localhost:5174`. The web dev server proxies `/api` requests to the API. The API defaults to demo mode outside production, with no live Bitcoin payment integration.
 
----
+In another terminal, verify the local API route:
 
-## Run with Docker Compose
-
-```bash
-docker compose up --build
+```sh
+npm run smoke:api -- http://localhost:3001
 ```
 
-- Web UI: `http://localhost:5174`
-- API Backend: `http://localhost:3001`
-- Persistent Data: mapped to Docker volume `satsloom-data`
+After deploying, verify the actual deployment separately:
 
----
+```sh
+npm run smoke:api -- https://your-deployment.example
+```
 
-## Architecture
+A successful local build does not prove a Vercel deployment is healthy.
+
+## Vercel deployment
+
+`vercel.json` defines separate `web` and `api` services. The API service has `apps/api/src/server.ts` as its Node entrypoint and `/api/*` requests are rewritten to that service. The API build runs a TypeScript check. After deploying, run the smoke command above against the deployed domain and confirm that `GET /api/health` returns JSON with `data.ok: true`.
+
+Vercel's function filesystem and process memory are not a shared persistent database. The API reports its persistence mode from `/api/health`; use a managed database and an idempotent job/outbox design before exposing durable merchant workflows. Do not enable demo mode on a public deployment unless you intend to offer simulations only.
+
+## Environment variables
+
+See `.env.example`. Important settings:
+
+- `SATSLOOM_DEMO_MODE=true` — explicitly enables simulation endpoints; still moves no funds. Production defaults to `false`.
+- `SATSLOOM_PROOF_SECRET` — required for signed x402 demo receipts in production.
+- `SATSLOOM_ADMIN_TOKEN` — required to access non-public API routes when demo mode is disabled. Store it in a secret manager; do not commit it.
+- `SATSLOOM_WEBHOOK_ALLOWED_ORIGINS` and `SATSLOOM_WEBHOOK_SECRET` — both required before webhook destinations are accepted. Origins must match exactly and use HTTPS.
+- `SATSLOOM_DATA_FILE` — optional path for local single-process JSON persistence. This is not suitable for serverless or multi-instance deployment.
+- `WEB_ORIGIN` — optional exact browser origin for local API CORS.
+
+## Repository layout
 
 ```text
-React Web Dashboard / SatsShop / x402 Sandbox
-        │
-        ▼ (HTTP + Server-Sent Events)
-Fastify API (apps/api) ─── persistent store ───> ./data/satsloom.json
-        │
-        ├─> Domain State Machine (packages/domain)
-        │       └─> Deterministic Router (packages/router)
-        │
-        └─> Tachi SDK Adapter (packages/tachi-adapter)
-                ├─> Tachi Regtest Daemon (rpc-regtest.tachibtc.com)
-                ├─> 7 Online Network Validators
-                └─> Bitcoin Core (Regtest P2TR / Unilateral 1008 CSV Exit)
+apps/web/                 React/Vite demo UI
+apps/api/                 Fastify API, demo endpoints, single-process storage
+packages/domain/          Invoice lifecycle and settlement state machine
+packages/router/          Deterministic single-route scoring
+packages/tachi-adapter/   Tachi SDK adapter and integration spike surface
+packages/ecommerce/       Merchant client example (simulation-aware)
+scripts/spike-tachi.ts    Opt-in Tachi/regtest integration spike
 ```
 
----
+## Route fallback semantics
 
-## Documentation & Hackathon Deliverables
+The domain package selects one eligible route. If that route is unavailable before execution, it may select another eligible route. After an execution attempt, a retry is permitted only when the adapter throws `RetryableSettlementError`, which means the adapter has positively confirmed that no funds moved. Generic/ambiguous failures are recorded and are not retried. This is a state-machine behavior; the public API currently exercises it only with simulated routes.
 
-- [SUBMISSION.md](SUBMISSION.md): Comprehensive hackathon overview tailored for Tachi OP_Freedom judges.
-- [docs/merchant-payment-compliance.md](docs/merchant-payment-compliance.md): Detailed compliance matrix for Bounty #11.
-- [docs/architecture.md](docs/architecture.md): State transitions and invariant rules.
-- [docs/ecommerce-integration.md](docs/ecommerce-integration.md): E-commerce integration guide using `@satsloom/ecommerce`.
-- [docs/x402-agentic-btc.md](docs/x402-agentic-btc.md): Protocol specifications for HTTP 402 AI agent payments.
-- [docs/demo-script.md](docs/demo-script.md): Step-by-step walkthrough for recording the 2-minute demo video.
+## Webhooks
+
+Configure both `SATSLOOM_WEBHOOK_ALLOWED_ORIGINS` (comma-separated exact HTTPS origins) and `SATSLOOM_WEBHOOK_SECRET` before providing `webhookUrl` on an invoice. The API rejects non-HTTPS or non-allow-listed origins, query strings, IP-literal/local hosts, and never follows redirects. Only configure trusted, publicly reachable webhook origins; do not allow-list internal services. Deliveries carry `x-satsloom-signature: sha256=<hex HMAC>` over the raw JSON body. Webhook delivery is best-effort and is not backed by a durable queue.
+
+## License
+
+No license is currently declared in this repository. Do not assume permission to redistribute or use it under MIT or another open-source license.

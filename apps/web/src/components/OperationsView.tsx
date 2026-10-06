@@ -19,7 +19,7 @@ export function OperationsView({
 }: Props) {
   const [subTab, setSubTab] = useState<"transactions" | "refunds" | "payouts" | "webhooks">("transactions");
   const [payoutAmount, setPayoutAmount] = useState("25000");
-  const [destination, setDestination] = useState("bcrt1qmerchantdev779xxpayoutaddress");
+  const [destination, setDestination] = useState("");
   const [webhooks, setWebhooks] = useState<any[]>([]);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,51 +55,52 @@ export function OperationsView({
     return list.filter((item) => JSON.stringify(item).toLowerCase().includes(q));
   };
 
-  const vtxoPool = Number(liquidity?.vtxoSats ?? 100000);
-  const lpFloat = Number(liquidity?.providerSats ?? 250000);
-  const reserved = Number(liquidity?.reservedSats ?? 50000);
+  const vtxoPool = Number(liquidity?.vtxoSats ?? 0);
+  const lpFloat = Number(liquidity?.providerSats ?? 0);
+  const reserved = Number(liquidity?.reservedSats ?? 0);
 
   return (
     <div className="operations-container">
-      {/* 3-Card Treasury Metrics Overview */}
+      <div className="checkout-simulation-banner" role="note">
+        <div className="banner-info"><strong>Simulation records only.</strong> No Bitcoin is received, settled, refunded, or paid out. Capacities below are hard-coded model values.</div>
+      </div>
+      {/* Demo capacity cards */}
       <div className="treasury-kpi-deck">
         <div className="treasury-card">
           <div className="t-card-top">
-            <span className="t-card-label">VTXO Liquid Depth</span>
-            <span className="t-card-badge settled">
-              <span className="pulse-dot green"></span> Live Settled
-            </span>
+            <span className="t-card-label">Sample VTXO Capacity</span>
+            <span className="t-card-badge settled">Demo value</span>
           </div>
           <div className="t-card-val">
             {vtxoPool.toLocaleString()} <span className="t-unit">sats</span>
           </div>
-          <div className="t-card-desc">Off-chain VTXO instant settlement capacity</div>
+          <div className="t-card-desc">Hard-coded route model input · not spendable</div>
         </div>
 
         <div className="treasury-card">
           <div className="t-card-top">
-            <span className="t-card-label">LP Routing Float</span>
+            <span className="t-card-label">Sample Provider Capacity</span>
             <span className="t-card-badge float">
-              <span className="pulse-dot amber"></span> Provider Float
+              <span className="pulse-dot amber"></span> Demo value
             </span>
           </div>
           <div className="t-card-val">
             {lpFloat.toLocaleString()} <span className="t-unit">sats</span>
           </div>
-          <div className="t-card-desc">Multi-hop liquidity provider reserve for atomic routing</div>
+          <div className="t-card-desc">No liquidity provider is connected</div>
         </div>
 
         <div className="treasury-card">
           <div className="t-card-top">
-            <span className="t-card-label">Reserved In-Flight</span>
+            <span className="t-card-label">Simulated Reserved Amount</span>
             <span className="t-card-badge reserved">
-              <span className="pulse-dot gold"></span> Escrow Lock
+              <span className="pulse-dot gold"></span> Demo state
             </span>
           </div>
           <div className="t-card-val">
             {reserved.toLocaleString()} <span className="t-unit">sats</span>
           </div>
-          <div className="t-card-desc">Committed to active routing batches &amp; queued sweeps</div>
+          <div className="t-card-desc">No escrow, batch, or payout transaction exists</div>
         </div>
       </div>
 
@@ -161,20 +162,20 @@ export function OperationsView({
         <div className="payout-panel-card">
           <div className="payout-card-head">
             <div>
-              <h4>Initiate Merchant Payout / Sweep to Cold Storage</h4>
+              <h4>Create a simulated payout record</h4>
               <p className="payout-card-subtitle">
-                Transfer settled off-chain VTXO balances directly to an external on-chain Bitcoin testnet or hardware wallet address.
+                This form only changes demo state. It does not validate a Bitcoin address, access a wallet, or broadcast a transaction.
               </p>
             </div>
             <div className="payout-limit-badge">
-              <span>Max Liquid: <strong>{vtxoPool.toLocaleString()} sats</strong></span>
+              <span>Model capacity: <strong>{vtxoPool.toLocaleString()} sats (demo)</strong></span>
             </div>
           </div>
 
           <form className="payout-form-grid" onSubmit={submitPayout}>
             <div className="payout-field">
               <label htmlFor="payout-amt">
-                <span>Sweep Amount (sats)</span>
+                <span>Simulated amount (sats)</span>
                 <span className="field-min">Min: 1,000 sats</span>
               </label>
               <div className="input-with-unit">
@@ -199,15 +200,15 @@ export function OperationsView({
                   className="quick-amt-btn max"
                   onClick={() => setPayoutAmount(String(vtxoPool))}
                 >
-                  Max VTXO
+                  Max sample
                 </button>
               </div>
             </div>
 
             <div className="payout-field flex-grow">
               <label htmlFor="payout-dest">
-                <span>Destination Bitcoin Address (Testnet / Regtest)</span>
-                <span className="field-type">P2TR / P2WPKH</span>
+                <span>Destination label (not validated)</span>
+                <span className="field-type">No broadcast</span>
               </label>
               <input
                 id="payout-dest"
@@ -215,10 +216,10 @@ export function OperationsView({
                 className="form-input mono"
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
-                placeholder="bcrt1q... or tb1q..."
+                placeholder="e.g. demo-destination"
                 required
               />
-              <span className="field-subtext">Direct non-custodial sweep broadcasted into the next regtest/testnet block.</span>
+              <span className="field-subtext">Stored as text only; no address validation or Bitcoin transaction.</span>
             </div>
 
             <div className="payout-action-col">
@@ -226,11 +227,11 @@ export function OperationsView({
                 {busy ? (
                   <>
                     <span className="btn-spinner"></span>
-                    <span>Sweeping...</span>
+                    <span>Recording...</span>
                   </>
                 ) : (
                   <>
-                    <span>⚡ Queue Payout Sweep</span>
+                    <span>Create Demo Payout Record</span>
                   </>
                 )}
               </button>
@@ -260,7 +261,7 @@ export function OperationsView({
                     <div className="empty-state">
                       <div className="empty-icon">⚡</div>
                       <div className="empty-title">No settlements recorded yet</div>
-                      <div className="empty-desc">Settled VTXO batches and off-chain payments will stream here automatically.</div>
+                      <div className="empty-desc">Simulated route records appear here after a demo settlement.</div>
                     </div>
                   </td>
                 </tr>
@@ -284,7 +285,7 @@ export function OperationsView({
                       <code className="code-faint">{tx.invoiceId ? `${tx.invoiceId.slice(0, 8)}...` : "—"}</code>
                     </td>
                     <td>
-                      <span className="route-cell-tag">{tx.routeId || "TACHI-VTXO"}</span>
+                      <span className="route-cell-tag">{tx.routeId || "sample route"}</span>
                     </td>
                     <td>
                       <span className="status-badge settled">
@@ -293,7 +294,7 @@ export function OperationsView({
                       </span>
                     </td>
                     <td>
-                      <span className="badge-sim">{tx.simulation ? "Tachi Regtest" : "Live Testnet"}</span>
+                      <span className="badge-sim">{tx.simulation ? "SIMULATED · no tx" : "UNVERIFIED"}</span>
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <button className="btn-inspect" onClick={() => setSelectedItem(tx)}>
@@ -326,7 +327,7 @@ export function OperationsView({
                     <div className="empty-state">
                       <div className="empty-icon">↩</div>
                       <div className="empty-title">No refunds issued</div>
-                      <div className="empty-desc">Instant customer refunds will be logged with full cryptographic provenance.</div>
+                      <div className="empty-desc">Refund endpoints create demo records only; no Bitcoin refund is sent.</div>
                     </div>
                   </td>
                 </tr>
@@ -388,7 +389,7 @@ export function OperationsView({
                     <div className="empty-state">
                       <div className="empty-icon">📦</div>
                       <div className="empty-title">No payouts queued yet</div>
-                      <div className="empty-desc">Queue a cold storage sweep above to transfer settled treasury balances to an external wallet.</div>
+                      <div className="empty-desc">Queued payout rows are simulation records and do not transfer funds.</div>
                     </div>
                   </td>
                 </tr>
@@ -460,7 +461,7 @@ export function OperationsView({
                     <div className="empty-state">
                       <div className="empty-icon">🔔</div>
                       <div className="empty-title">No webhook deliveries dispatched yet</div>
-                      <div className="empty-desc">Provide a webhookUrl when creating merchant invoices to monitor live HTTP webhook delivery traces.</div>
+                      <div className="empty-desc">Delivery requires an exact HTTPS origin allow-list and signing secret in the API configuration. No arbitrary webhook target is accepted.</div>
                     </div>
                   </td>
                 </tr>
@@ -477,8 +478,8 @@ export function OperationsView({
                       <code className="mono-addr">{hook.url}</code>
                     </td>
                     <td>
-                      <span className={`http-status-pill ${hook.status === 200 ? "ok" : "err"}`}>
-                        {hook.status} {hook.status === 200 ? "OK" : "FAILED"}
+                      <span className={`http-status-pill ${typeof hook.status === "number" && hook.status >= 200 && hook.status < 300 ? "ok" : "err"}`}>
+                        {hook.status} {typeof hook.status === "number" && hook.status >= 200 && hook.status < 300 ? "OK" : "FAILED"}
                       </span>
                     </td>
                     <td>
@@ -500,8 +501,8 @@ export function OperationsView({
               <div className="modal-header-left">
                 <div className="modal-icon">📜</div>
                 <div>
-                  <h3>Cryptographic Record Details</h3>
-                  <p className="modal-subtitle">Verifiable JSON schema trace for settlement auditing</p>
+                  <h3>Demo Record Details</h3>
+                  <p className="modal-subtitle">Application state only · not a cryptographic Bitcoin settlement record</p>
                 </div>
               </div>
               <button className="close-btn" onClick={() => setSelectedItem(null)}>✕</button>

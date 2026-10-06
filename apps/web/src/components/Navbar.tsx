@@ -10,6 +10,8 @@ interface Props {
 
 export function Navbar({ activeTab, setActiveTab, status }: Props) {
   const isDaemonLive = status?.daemon?.reachable ?? false;
+  const daemonChecked = status?.daemon?.checked === true;
+  const daemonLabel = !daemonChecked ? "Not queried by API" : isDaemonLive ? "Reachable" : "Unavailable";
 
   return (
     <header className="satsloom-header">
@@ -22,19 +24,19 @@ export function Navbar({ activeTab, setActiveTab, status }: Props) {
           <div>
             <div className="brand-title-wrap">
               <h1>SatsLoom</h1>
-              <span className="brand-tag">Tachi BTCFi</span>
+              <span className="brand-tag">Demo</span>
             </div>
-            <p className="brand-subtitle">Self-Custodial Merchant Settlement Router & x402 Gateway</p>
+            <p className="brand-subtitle">Invoice &amp; Route Simulation · x402 Demo</p>
           </div>
         </div>
 
         <div className="header-meta">
           <div className={`node-status-pill ${isDaemonLive ? "online" : "connecting"}`}>
             <span className="pulse-indicator"></span>
-            <span>Tachi Regtest: {isDaemonLive ? "Connected (7 Validators)" : "Connecting..."}</span>
+            <span>Tachi endpoint: {daemonLabel}</span>
           </div>
-          <div className="degraded-badge" title="Public SDK does not expose full KDHT cooperative signature aggregation; router executes live vault/PSBT construction with deterministic settlement simulation.">
-            <span>Degraded Mode Disclosed</span>
+          <div className="degraded-badge" title="Invoice confirmation and settlement in this demo are simulations; no Bitcoin payments are sent or verified.">
+            <span>Payments Simulated · No Funds Moved</span>
           </div>
         </div>
       </div>
@@ -50,7 +52,7 @@ export function Navbar({ activeTab, setActiveTab, status }: Props) {
           className={`nav-tab-btn ${activeTab === "shop" ? "active" : ""}`}
           onClick={() => setActiveTab("shop")}
         >
-          🛒 SatsShop Showcase
+          🛒 SatsShop Demo Catalog
         </button>
         <button
           className={`nav-tab-btn ${activeTab === "x402" ? "active" : ""}`}

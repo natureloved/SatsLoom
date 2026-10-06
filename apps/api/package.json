@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "echo 'Ready'",
+    "build": "tsc --noEmit -p tsconfig.json",
     "start": "node --experimental-strip-types src/server.ts",
     "dev": "node --experimental-strip-types src/server.ts"
   },
@@ -11,7 +11,13 @@
     "@satsloom/domain": "*",
     "@satsloom/router": "0.1.0",
     "@satsloom/shared": "0.1.0",
-    "@satsloom/tachi-adapter": "0.1.0",
-    "fastify": "^5.1.0"
+    "fastify": "^5.12.5"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^5.6.3"
   }
 }
