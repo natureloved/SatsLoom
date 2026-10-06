@@ -4219,7 +4219,7 @@ footer {
   height: 120px;
   place-items: center;
   border-radius: 50%;
-  background: conic-gradient(var(--amber) 0deg 245deg, var(--settled) 245deg 302deg, var(--gold) 302deg 337deg, #2B2415 337deg 360deg);
+  background: #2B2415;
 }
 .donut:before {
   content: "";
@@ -4242,10 +4242,7 @@ footer {
 }
 .asset:last-child { border-bottom: 0; }
 .asset-name { display: flex; align-items: center; gap: 8px; color: var(--txt); font-weight: 700; }
-.asset-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
-.asset:nth-child(2) .asset-mark { background: var(--settled); }
-.asset:nth-child(3) .asset-mark { background: var(--gold); }
-.asset:nth-child(4) .asset-mark { background: #3E321C; }
+.asset-mark { width: 8px; height: 8px; border-radius: 50%; background: #5a574f; }
 .asset-value { color: var(--muted); font-family: "DM Mono", monospace; font-size: 10px; }
 
 .activity { padding-bottom: 4px; }

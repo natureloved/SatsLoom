@@ -29,20 +29,20 @@ export function RouteVisualizer({
     <div className="route-visualizer-section">
       <div className="section-title-row">
         <div>
-          <h3>Multi-Path Settlement Router</h3>
+          <h3>Illustrative Single-Route Scoring</h3>
           <p className="section-desc">
-            Deterministic route scoring across VTXO off-chain, LP rebalancing, and TAURUS unilateral on-chain exit
+            Hard-coded candidate values only. The demo selects one sample route; it does not split payments or contact a provider.
           </p>
         </div>
         <div className="route-action-buttons">
           <button className="btn-secondary" onClick={onSelect} disabled={disabled || settled}>
-            ⚡ 1. Score & Select Route
+            ⚡ 1. Score sample routes
           </button>
           <button className="btn-accent" onClick={onSettle} disabled={disabled || settled || !selectedRouteId}>
-            ✓ 2. Settle Preferred Route
+            ✓ 2. Simulate selected route
           </button>
           <button className="btn-warning" onClick={onInvalidateAndSettle} disabled={disabled || settled}>
-            ⚠️ Invalidate VTXO + Settle Fallback
+            ⚠️ Invalidate candidate + simulate fallback
           </button>
         </div>
       </div>
@@ -51,7 +51,7 @@ export function RouteVisualizer({
         <div className="fallback-banner">
           <div className="fallback-icon">🔄</div>
           <div>
-            <strong>Automated Fallback Triggered:</strong>
+            <strong>Simulated fallback recorded:</strong>
             <p>{fallbackHistory[0].reason}</p>
           </div>
         </div>
@@ -74,13 +74,13 @@ export function RouteVisualizer({
                   <h4>{route.id}</h4>
                 </div>
                 <span className={`status-pill ${route.available ? "active" : "disabled"}`}>
-                  {route.available ? "Available" : "Invalidated"}
+                  {route.available ? "Sample candidate" : "Excluded in demo"}
                 </span>
               </div>
 
               <div className="route-metrics">
                 <div className="metric">
-                  <span className="metric-label">Estimated Speed</span>
+                  <span className="metric-label">Sample time estimate</span>
                   <span className="metric-val">{route.estimatedSettlementSeconds}s</span>
                   <div className="progress-bar-bg">
                     <div
@@ -92,33 +92,33 @@ export function RouteVisualizer({
 
                 <div className="metric-row">
                   <div>
-                    <span className="metric-label">Network Fee</span>
+                    <span className="metric-label">Sample fee</span>
                     <span className="metric-val highlight">{route.feeSats} sats</span>
                   </div>
                   <div>
-                    <span className="metric-label">Route Capacity</span>
+                    <span className="metric-label">Sample capacity</span>
                     <span className="metric-val">{Number(route.capacitySats).toLocaleString()} sats</span>
                   </div>
                 </div>
 
                 <div className="metric-row">
                   <div>
-                    <span className="metric-label">Exit Risk</span>
+                    <span className="metric-label">Illustrative exit-risk input</span>
                     <span className={`risk-tag risk-${route.exitRisk}`}>
                       {route.exitRisk.toUpperCase()}
                       {route.timelockBlocks ? ` (${route.timelockBlocks} blks)` : ""}
                     </span>
                   </div>
                   <div>
-                    <span className="metric-label">Cooperative</span>
-                    <span className="metric-val">{route.requiresCooperativeSigning ? "KDHT Quorum" : "Direct"}</span>
+                    <span className="metric-label">Execution method</span>
+                    <span className="metric-val">Not configured</span>
                   </div>
                 </div>
               </div>
 
               {isSelected && (
                 <div className="selected-indicator">
-                  <span>★ Active Selected Route</span>
+                  <span>★ Selected sample candidate</span>
                 </div>
               )}
             </div>

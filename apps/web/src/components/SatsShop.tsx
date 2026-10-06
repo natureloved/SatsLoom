@@ -61,7 +61,7 @@ export function SatsShop({ onBuyProduct }: Props) {
         <div>
           <h2>SatsShop • Merchant E-Commerce Showcase</h2>
           <p className="shop-subtitle">
-            Demonstrating self-hosted e-commerce integration with <code>@satsloom/ecommerce</code> and real-time VTXO settlement.
+            Sample catalog for the <code>@satsloom/ecommerce</code> client. Checkout is simulated; no product is paid for or fulfilled.
           </p>
         </div>
         <div className="integration-badge">
@@ -87,11 +87,15 @@ export function SatsShop({ onBuyProduct }: Props) {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                 </svg>
-                <span>Buy with SatsLoom</span>
+                <span>Create Demo Checkout</span>
               </button>
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="checkout-simulation-banner" role="note">
+        <div className="banner-info"><strong>Demo catalog:</strong> listed amounts are sample values; no payment is collected and no order is fulfilled.</div>
       </div>
 
       <div className="ecommerce-code-preview">
@@ -100,23 +104,20 @@ export function SatsShop({ onBuyProduct }: Props) {
             <polyline points="16 18 22 12 16 6" />
             <polyline points="8 6 2 12 8 18" />
           </svg>
-          Drop-in E-Commerce Integration (Merchant Code)
+          Example Client Usage (Simulation Only)
         </h4>
         <pre>
           <code>{`import { SatsLoomMerchantClient } from "@satsloom/ecommerce";
 
-const satsloom = new SatsLoomMerchantClient("https://merchant-node:3001");
+const satsloom = new SatsLoomMerchantClient("https://your-demo.example");
 const checkout = await satsloom.createCheckout({
   orderId: "shop-order-101",
   amountSats: 25000,
   memo: "OP_Freedom Hackathon Kit",
-  webhookUrl: "https://myshop.com/api/webhooks/satsloom",
 });
 
-// Stream real-time payment confirmation to frontend
-satsloom.subscribeToPayment(checkout.invoiceId, (event) => {
-  fulfillOrder("shop-order-101");
-});`}</code>
+// Demo only: no payment is collected and no order can be fulfilled.
+console.log({ paymentUrl: checkout.paymentUrl, simulation: checkout.simulation });`}</code>
         </pre>
       </div>
     </div>

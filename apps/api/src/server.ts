@@ -1,197 +1,64 @@
 import "dotenv/config";
-import fs from "node:fs";
-import path from "node:path";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import https from "node:https";
+import { isIP } from "node:net";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
-import { confirmPayment, createInvoiceAggregate, markQuoted, selectSettlementRoute, settleInvoice, type InvoiceAggregate } from "@satsloom/domain";
-import { TachiSdkAdapter } from "@satsloom/tachi-adapter";
+import {
+  confirmPayment,
+  createInvoiceAggregate,
+  markQuoted,
+  selectSettlementRoute,
+  settleInvoice,
+  type InvoiceAggregate,
+} from "@satsloom/domain";
 import type { Invoice, Merchant, RouteQuote, Settlement } from "@satsloom/shared";
 import { jsonSafe } from "@satsloom/shared";
+import { PersistentStore, type IdempotencyRecord, type WebhookLog } from "./storage.ts";
 
-export type WebhookLog = {
-  id: string;
-  invoiceId: string;
-  event: string;
-  url: string;
-  status: number | "error";
-  payload: unknown;
-  timestamp: string;
-  error?: string;
-};
+export { PersistentStore } from "./storage.ts";
+export type { IdempotencyRecord, StoreData, WebhookLog } from "./storage.ts";
 
-export type StoreData = {
-  aggregates: Record<string, any>;
-  quotes: Record<string, any>;
-  transactions: Record<string, any>;
-  refunds: Record<string, any>;
-  payouts: Record<string, any>;
-  webhookLogs: WebhookLog[];
-  reservedLiquiditySats: string;
-};
+export const app = Fastify({
+  logger: process.env.NODE_ENV !== "test",
+  trustProxy: process.env.VERCEL === "1",
+  bodyLimit: 64 * 1024,
+});
 
-export class PersistentStore {
-  private filePath: string | null = null;
-  private saveTimeout: NodeJS.Timeout | null = null;
-
-  constructor(filePath?: string) {
-    if (filePath) {
-      this.filePath = filePath;
-      const dir = path.dirname(filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-    }
-  }
-
-  load(): {
-    aggregates: Map<string, InvoiceAggregate>;
-    quotes: Map<string, RouteQuote>;
-    transactions: Map<string, Settlement>;
-    refunds: Map<string, any>;
-    payouts: Map<string, any>;
-    webhookLogs: WebhookLog[];
-    reservedLiquiditySats: bigint;
-  } {
-    const aggregates = new Map<string, InvoiceAggregate>();
-    const quotes = new Map<string, RouteQuote>();
-    const transactions = new Map<string, Settlement>();
-    const refunds = new Map<string, any>();
-    const payouts = new Map<string, any>();
-    let webhookLogs: WebhookLog[] = [];
-    let reservedLiquiditySats = 0n;
-
-    if (!this.filePath || !fs.existsSync(this.filePath)) {
-      return { aggregates, quotes, transactions, refunds, payouts, webhookLogs, reservedLiquiditySats };
-    }
-
-    try {
-      const raw = fs.readFileSync(this.filePath, "utf-8");
-      const data: StoreData = JSON.parse(raw);
-
-      if (data.aggregates) {
-        for (const [id, agg] of Object.entries(data.aggregates)) {
-          if (agg.invoice?.amountSats) {
-            agg.invoice.amountSats = BigInt(agg.invoice.amountSats);
-          }
-          if (agg.decision?.scoringInputs?.feeSats) {
-            agg.decision.scoringInputs.feeSats = BigInt(agg.decision.scoringInputs.feeSats);
-          }
-          if (agg.decision?.scoringInputs?.liquidityAvailable) {
-            agg.decision.scoringInputs.liquidityAvailable = BigInt(agg.decision.scoringInputs.liquidityAvailable);
-          }
-          aggregates.set(id, agg);
-        }
-      }
-
-      if (data.quotes) {
-        for (const [id, q] of Object.entries(data.quotes)) {
-          if (Array.isArray(q.routes)) {
-            for (const r of q.routes) {
-              if (r.capacitySats !== undefined) r.capacitySats = BigInt(r.capacitySats);
-              if (r.feeSats !== undefined) r.feeSats = BigInt(r.feeSats);
-            }
-          }
-          quotes.set(id, q);
-        }
-      }
-
-      if (data.transactions) {
-        for (const [txid, t] of Object.entries(data.transactions)) {
-          transactions.set(txid, t);
-        }
-      }
-
-      if (data.refunds) {
-        for (const [id, r] of Object.entries(data.refunds)) {
-          if (r.amountSats !== undefined) r.amountSats = BigInt(r.amountSats);
-          refunds.set(id, r);
-        }
-      }
-
-      if (data.payouts) {
-        for (const [id, p] of Object.entries(data.payouts)) {
-          if (p.amountSats !== undefined) p.amountSats = BigInt(p.amountSats);
-          payouts.set(id, p);
-        }
-      }
-
-      if (Array.isArray(data.webhookLogs)) {
-        webhookLogs = data.webhookLogs;
-      }
-
-      if (data.reservedLiquiditySats) {
-        reservedLiquiditySats = BigInt(data.reservedLiquiditySats);
-      }
-    } catch (err) {
-      console.error("[Storage] Failed to read store file, starting fresh:", err);
-    }
-
-    return { aggregates, quotes, transactions, refunds, payouts, webhookLogs, reservedLiquiditySats };
-  }
-
-  saveDebounced(
-    aggregates: Map<string, InvoiceAggregate>,
-    quotes: Map<string, RouteQuote>,
-    transactions: Map<string, Settlement>,
-    refunds: Map<string, any>,
-    payouts: Map<string, any>,
-    webhookLogs: WebhookLog[],
-    reservedLiquiditySats: bigint,
-  ) {
-    if (!this.filePath) return;
-    if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => {
-      this.saveSync(aggregates, quotes, transactions, refunds, payouts, webhookLogs, reservedLiquiditySats);
-    }, 150);
-  }
-
-  saveSync(
-    aggregates: Map<string, InvoiceAggregate>,
-    quotes: Map<string, RouteQuote>,
-    transactions: Map<string, Settlement>,
-    refunds: Map<string, any>,
-    payouts: Map<string, any>,
-    webhookLogs: WebhookLog[],
-    reservedLiquiditySats: bigint,
-  ) {
-    if (!this.filePath) return;
-    try {
-      const data: StoreData = {
-        aggregates: Object.fromEntries(aggregates),
-        quotes: Object.fromEntries(quotes),
-        transactions: Object.fromEntries(transactions),
-        refunds: Object.fromEntries(refunds),
-        payouts: Object.fromEntries(payouts),
-        webhookLogs: webhookLogs.slice(-100),
-        reservedLiquiditySats: reservedLiquiditySats.toString(),
-      };
-      const json = JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2);
-      fs.writeFileSync(this.filePath, json, "utf-8");
-    } catch (err) {
-      console.error("[Storage] Failed to persist data to disk:", err);
-    }
-  }
-}
-
-export const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
-const adapter = new TachiSdkAdapter();
 const mode = "degraded" as const;
+const demoMode = process.env.SATSLOOM_DEMO_MODE === "true" ||
+  (process.env.SATSLOOM_DEMO_MODE !== "false" && process.env.NODE_ENV !== "production");
+const adminToken = process.env.SATSLOOM_ADMIN_TOKEN ?? "";
+const proofSecret = process.env.SATSLOOM_PROOF_SECRET ?? (process.env.NODE_ENV === "production" ? "" : randomBytes(32).toString("hex"));
+const defaultStoreFile = fileURLToPath(new URL("../data/satsloom.json", import.meta.url));
+const storeFile = process.env.NODE_ENV === "test"
+  ? undefined
+  : process.env.SATSLOOM_DATA_FILE ?? (process.env.VERCEL === "1" ? undefined : defaultStoreFile);
+const store = new PersistentStore(storeFile);
+const loaded = store.load();
+
 const merchant: Merchant = {
   id: "merchant-demo",
   name: "SatsLoom Demo Merchant",
-  settlementPolicy: { maxFeeSats: 1_000n, maxSettlementSeconds: 600, feeWeight: 0.2, latencyWeight: 0.35, exitRiskWeight: 0.35, liquidityPenalty: 0.1 },
+  settlementPolicy: {
+    maxFeeSats: 1_000n,
+    maxSettlementSeconds: 600,
+    feeWeight: 0.2,
+    latencyWeight: 0.35,
+    exitRiskWeight: 0.35,
+    liquidityPenalty: 0.1,
+  },
 };
-
-const storeFile = process.env.NODE_ENV === "test" ? undefined : (process.env.SATSLOOM_DATA_FILE ?? "./data/satsloom.json");
-const store = new PersistentStore(storeFile);
-const loaded = store.load();
 
 const aggregates: Map<string, InvoiceAggregate> = loaded.aggregates;
 const quotes: Map<string, RouteQuote> = loaded.quotes;
 const transactions: Map<string, Settlement> = loaded.transactions;
 const refunds: Map<string, any> = loaded.refunds;
 const payouts: Map<string, any> = loaded.payouts;
-const webhookUrls = new Map<string, string>();
+const webhookUrls = loaded.webhookUrls;
 const webhookLogs: WebhookLog[] = loaded.webhookLogs;
+const idempotencyRecords = loaded.idempotencyRecords;
 const settlementJobs = new Map<string, Promise<Awaited<ReturnType<typeof settleInvoice>>>>();
 const eventClients = new Map<string, Set<any>>();
 const liquidity = {
@@ -200,18 +67,80 @@ const liquidity = {
   onchainSats: 1_000_000n,
   reservedSats: loaded.reservedLiquiditySats,
 };
+const maximumBitcoinSats = 21_000_000n * 100_000_000n;
 
 function persist() {
-  store.saveDebounced(aggregates, quotes, transactions, refunds, payouts, webhookLogs, liquidity.reservedSats);
+  store.saveDebounced(
+    aggregates,
+    quotes,
+    transactions,
+    refunds,
+    payouts,
+    webhookLogs,
+    webhookUrls,
+    idempotencyRecords,
+    liquidity.reservedSats,
+  );
 }
 
 const envelope = (requestId: string, data: unknown, extra: Record<string, unknown> = {}) => ({
   requestId,
   mode,
+  demo: demoMode,
   ...extra,
   data: jsonSafe(data),
 });
-const maximumBitcoinSats = 21_000_000n * 100_000_000n;
+
+export function isValidAdminToken(providedToken: string | undefined, expectedToken = adminToken): boolean {
+  if (!expectedToken || !providedToken) return false;
+  const provided = Buffer.from(providedToken);
+  const expected = Buffer.from(expectedToken);
+  return provided.length === expected.length && timingSafeEqual(provided, expected);
+}
+
+function requireAdmin(request: any, reply: any): boolean {
+  if (!adminToken) {
+    reply.code(503).send(envelope(request.id, null, { error: "Administrative API is disabled: configure SATSLOOM_ADMIN_TOKEN" }));
+    return false;
+  }
+  const authorization = typeof request.headers.authorization === "string" ? request.headers.authorization : "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!isValidAdminToken(match?.[1])) {
+    reply.code(401).header("www-authenticate", "Bearer").send(envelope(request.id, null, { error: "A valid administrative Bearer token is required" }));
+    return false;
+  }
+  return true;
+}
+
+function requireDemoMode(request: any, reply: any): boolean {
+  if (demoMode) return true;
+  reply.code(503).send(envelope(request.id, null, { error: "Live payment execution is not configured; simulated payment endpoints are disabled" }));
+  return false;
+}
+
+function signDemoReceipt(invoiceId: string, expiresAt: string): string {
+  const payload = Buffer.from(JSON.stringify({ v: 1, invoiceId, expiresAt, simulation: true })).toString("base64url");
+  const signature = createHmac("sha256", proofSecret).update(payload).digest("base64url");
+  return `SatsLoom-Demo ${payload}.${signature}`;
+}
+
+function verifyDemoReceipt(authorization: string): { invoiceId: string; expiresAt: string } | null {
+  if (!proofSecret) return null;
+  const match = authorization.match(/^SatsLoom-Demo\s+([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/);
+  if (!match) return null;
+  const [, payload, providedSignature] = match;
+  const expectedSignature = createHmac("sha256", proofSecret).update(payload).digest();
+  const actualSignature = Buffer.from(providedSignature, "base64url");
+  if (actualSignature.length !== expectedSignature.length || !timingSafeEqual(actualSignature, expectedSignature)) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (decoded.v !== 1 || decoded.simulation !== true || typeof decoded.invoiceId !== "string" || typeof decoded.expiresAt !== "string") return null;
+    if (!Number.isFinite(Date.parse(decoded.expiresAt)) || Date.parse(decoded.expiresAt) <= Date.now()) return null;
+    return { invoiceId: decoded.invoiceId, expiresAt: decoded.expiresAt };
+  } catch {
+    return null;
+  }
+}
 
 function parseSats(value: unknown): bigint | null {
   if (typeof value !== "string" && typeof value !== "number" && typeof value !== "bigint") return null;
@@ -232,74 +161,152 @@ function allowedBrowserOrigin(origin: string | undefined): string | undefined {
   return /^https?:\/\/(localhost|127\.0\.0\.1):(5173|5174)$/.test(origin) ? origin : undefined;
 }
 
-function publishInvoiceEvent(invoiceId: string, event: string, data: unknown) {
-  const clients = eventClients.get(invoiceId);
-  if (clients) {
-    const payload = `event: ${event}\ndata: ${JSON.stringify(jsonSafe(data))}\n\n`;
-    for (const client of clients) client.write(payload);
+function rateLimitBucketsKey(request: any): string {
+  return `${request.ip ?? "unknown"}:${request.routeOptions?.url ?? request.url.split("?")[0]}`;
+}
+const rateLimitBuckets = new Map<string, { startedAt: number; count: number }>();
+function rateLimited(request: any, reply: any, limit: number, windowMs = 60_000): boolean {
+  if (process.env.NODE_ENV === "test") return false;
+  const now = Date.now();
+  const key = rateLimitBucketsKey(request);
+  let bucket = rateLimitBuckets.get(key);
+  if (!bucket || now - bucket.startedAt >= windowMs) {
+    bucket = { startedAt: now, count: 0 };
+    rateLimitBuckets.set(key, bucket);
   }
-
-  const webhookUrl = webhookUrls.get(invoiceId);
-  if (webhookUrl) {
-    void dispatchWebhook(invoiceId, webhookUrl, event, data);
+  bucket.count += 1;
+  if (rateLimitBuckets.size > 5_000) {
+    for (const [bucketKey, value] of rateLimitBuckets) {
+      if (now - value.startedAt >= windowMs) rateLimitBuckets.delete(bucketKey);
+    }
   }
+  if (bucket.count <= limit) return false;
+  reply.header("retry-after", String(Math.max(1, Math.ceil((windowMs - (now - bucket.startedAt)) / 1000))));
+  reply.code(429).send(envelope(request.id, null, { error: "Rate limit exceeded; retry later" }));
+  return true;
 }
 
-async function dispatchWebhook(invoiceId: string, url: string, event: string, payload: unknown) {
-  const log: WebhookLog = {
-    id: crypto.randomUUID(),
-    invoiceId,
-    event,
-    url,
-    status: 0,
-    payload: jsonSafe(payload),
-    timestamp: new Date().toISOString(),
+function idempotencyInput(request: any): { key: string; hash: string } | null {
+  const supplied = request.headers["idempotency-key"] ?? request.headers["x-idempotency-key"];
+  if (typeof supplied !== "string" || supplied.length < 8 || supplied.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(supplied)) return null;
+  return {
+    key: supplied,
+    hash: createHash("sha256").update(JSON.stringify(request.body ?? {})).digest("hex"),
   };
+}
 
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-satsloom-event": event,
-        "x-satsloom-delivery": log.id,
-      },
-      body: JSON.stringify({
-        id: log.id,
-        event,
-        invoiceId,
-        timestamp: log.timestamp,
-        data: jsonSafe(payload),
-      }),
-      signal: AbortSignal.timeout(4000),
-    });
-    log.status = response.status;
-  } catch (err) {
-    log.status = "error";
-    log.error = err instanceof Error ? err.message : String(err);
+function hasInvalidIdempotencyKey(request: any): boolean {
+  const supplied = request.headers["idempotency-key"] ?? request.headers["x-idempotency-key"];
+  return supplied !== undefined && idempotencyInput(request) === null;
+}
+
+function cachedIdempotentResponse(scope: string, request: any): { response?: unknown; conflict: boolean } {
+  const input = idempotencyInput(request);
+  if (!input) return { conflict: false };
+  const record = idempotencyRecords.get(`${scope}:${input.key}`);
+  if (!record) return { conflict: false };
+  if (!Number.isFinite(Date.parse(record.createdAt)) || Date.now() - Date.parse(record.createdAt) > 24 * 60 * 60_000) {
+    idempotencyRecords.delete(`${scope}:${input.key}`);
+    return { conflict: false };
   }
+  if (record.requestHash && record.requestHash !== input.hash) return { conflict: true };
+  return { response: record.response, conflict: false };
+}
 
-  webhookLogs.push(log);
+function rememberIdempotentResponse(scope: string, request: any, response: unknown) {
+  const input = idempotencyInput(request);
+  if (!input) return;
+  idempotencyRecords.set(`${scope}:${input.key}`, {
+    scope,
+    requestHash: input.hash,
+    response: jsonSafe(response),
+    createdAt: new Date().toISOString(),
+  });
+  if (idempotencyRecords.size > 10_000) {
+    const cutoff = Date.now() - 24 * 60 * 60_000;
+    for (const [key, record] of idempotencyRecords) {
+      if (Date.parse(record.createdAt) < cutoff) idempotencyRecords.delete(key);
+      if (idempotencyRecords.size <= 10_000) break;
+    }
+  }
   persist();
 }
 
-app.addHook("onSend", async (request, reply, payload) => {
-  const origin = request.headers.origin;
-  const allowedOrigin = allowedBrowserOrigin(origin);
-  if (allowedOrigin) reply.header("access-control-allow-origin", allowedOrigin);
-  reply.header("vary", "Origin");
-  reply.header("access-control-allow-methods", "GET,POST,OPTIONS");
-  reply.header("access-control-allow-headers", "content-type,x-idempotency-key,authorization,x-402-payment,x-payment-invoice");
-  reply.header("access-control-expose-headers", "www-authenticate,x-402-invoice-id,x-402-price-sats,x-402-payment-url");
-  return payload;
-});
-app.options("/*", async (_request, reply) => reply.code(204).send());
+function validatedWebhookUrl(value: string): string | null {
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return null;
+  if (isIP(hostname) || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal")) return null;
+  const allowedOrigins = (process.env.SATSLOOM_WEBHOOK_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowed = allowedOrigins.some((origin) => {
+    try {
+      const parsed = new URL(origin);
+      const allowHost = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
+      return parsed.protocol === "https:" && !parsed.username && !parsed.password && parsed.pathname === "/" &&
+        !parsed.search && !parsed.hash && !isIP(allowHost) && parsed.origin === url.origin;
+    } catch { return false; }
+  });
+  if (!allowed || !process.env.SATSLOOM_WEBHOOK_SECRET) return null;
+  return url.toString();
+}
 
-function aggregateFor(id: string) { return aggregates.get(id); }
-function quoteFor(id: string) { return quotes.get(id); }
+function ipv4Number(address: string): number {
+  return address.split(".").reduce((result, part) => ((result << 8) | Number(part)) >>> 0, 0);
+}
+
+function isPublicIpv4(address: string): boolean {
+  if (isIP(address) !== 4) return false;
+  const ip = ipv4Number(address);
+  const inRange = (network: string, prefix: number) => {
+    const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+    return (ip & mask) === (ipv4Number(network) & mask);
+  };
+  const reservedRanges: Array<[string, number]> = [
+    ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
+    ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24],
+    ["192.88.99.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24],
+    ["203.0.113.0", 24], ["224.0.0.0", 4], ["240.0.0.0", 4],
+  ];
+  return !reservedRanges.some(([network, prefix]) => inRange(network, prefix));
+}
+
+async function postWebhook(url: string, body: string, headers: Record<string, string>): Promise<number> {
+  const target = new URL(url);
+  // Resolve and pin a public IPv4 address at dispatch time to reduce DNS rebinding/SSRF risk.
+  const addresses = await lookup(target.hostname, { all: true, family: 4, verbatim: true });
+  if (!addresses.length || addresses.some(({ address }) => !isPublicIpv4(address))) {
+    throw new Error("Webhook hostname did not resolve exclusively to public IPv4 addresses");
+  }
+  const address = addresses[0];
+  return new Promise<number>((resolve, reject) => {
+    const pinnedLookup = ((_hostname: string, options: any, callback: any) => {
+      if (options?.all) callback(null, [{ address: address.address, family: 4 }]);
+      else callback(null, address.address, 4);
+    }) as any;
+    const request = https.request(target, {
+      method: "POST",
+      headers,
+      lookup: pinnedLookup,
+      servername: target.hostname,
+      rejectUnauthorized: true,
+    }, (response) => {
+      response.resume();
+      resolve(response.statusCode ?? 0);
+    });
+    request.setTimeout(4_000, () => request.destroy(new Error("Webhook request timed out")));
+    request.on("error", reject);
+    request.end(body);
+  });
+}
+
 function invoiceView(aggregate: InvoiceAggregate) {
   return {
     ...aggregate.invoice,
+    simulation: true,
     lifecycle: aggregate.lifecycle,
     decision: aggregate.decision,
     settlement: aggregate.settlement,
@@ -322,73 +329,185 @@ function createDemoQuote(invoice: Invoice): RouteQuote {
   };
 }
 
-app.get("/api/health", async (request) => envelope(request.id, { ok: true, service: "satsloom-api" }));
+async function dispatchWebhook(invoiceId: string, url: string, event: string, payload: unknown) {
+  const log: WebhookLog = {
+    id: crypto.randomUUID(),
+    invoiceId,
+    event,
+    // Do not expose possible path-based webhook credentials in the public demo log.
+    url: (() => { try { return new URL(url).origin; } catch { return "invalid webhook URL"; } })(),
+    status: 0,
+    payload: jsonSafe(payload),
+    timestamp: new Date().toISOString(),
+  };
+  try {
+    const validatedUrl = validatedWebhookUrl(url);
+    if (!validatedUrl) throw new Error("Webhook destination is no longer allow-listed");
+    const body = JSON.stringify({ id: log.id, event, invoiceId, timestamp: log.timestamp, data: jsonSafe(payload), simulation: true });
+    const signature = createHmac("sha256", process.env.SATSLOOM_WEBHOOK_SECRET ?? "").update(body).digest("hex");
+    log.status = await postWebhook(validatedUrl, body, {
+      "content-type": "application/json",
+      "x-satsloom-event": event,
+      "x-satsloom-delivery": log.id,
+      "x-satsloom-signature": `sha256=${signature}`,
+    });
+  } catch (error) {
+    log.status = "error";
+    log.error = error instanceof Error ? error.message : String(error);
+  }
+  webhookLogs.push(log);
+  if (webhookLogs.length > 500) webhookLogs.splice(0, webhookLogs.length - 500);
+  persist();
+}
 
-app.get("/api/tachi/status", async (request) => {
-  const [daemon, validators] = await Promise.all([adapter.getStatus(), adapter.getValidators()]);
-  return envelope(request.id, {
-    daemon,
-    validatorCount: validators.length,
-    capabilities: {
-      vaultCreation: "live",
-      vaultVerification: "live",
-      deposit: "live",
-      vtxoRegistration: "live",
-      vtxoQuery: "live",
-      userPsbtSigning: "live",
-      kdhtCooperativeSigning: "unavailable",
-      vtxoTransfer: "unavailable",
-      unilateralExitPreparation: "live",
-    },
-  });
+function publishInvoiceEvent(invoiceId: string, event: string, data: unknown) {
+  const clients = eventClients.get(invoiceId);
+  if (clients) {
+    const message = `event: ${event}\ndata: ${JSON.stringify(jsonSafe(data))}\n\n`;
+    for (const client of clients) client.write(message);
+  }
+  const url = webhookUrls.get(invoiceId);
+  if (url) void dispatchWebhook(invoiceId, url, event, data);
+}
+
+app.addHook("onRequest", async (request: any, reply) => {
+  if (!request.url.startsWith("/api/") || request.method === "OPTIONS") return;
+  const routePath = request.routeOptions?.url ?? request.url.split("?")[0];
+  if (rateLimited(request, reply, routePath === "/api/x402/resource" ? 30 : 120)) return reply;
 });
 
-app.get("/api/tachi/telemetry", async (request) => {
-  const [daemon, validators] = await Promise.all([adapter.getStatus(), adapter.getValidators()]);
-  return envelope(request.id, {
-    network: daemon.network ?? "regtest",
-    daemonUrl: process.env.TACHI_DAEMON_RPC_URL ?? "https://rpc-regtest.tachibtc.com",
-    explorerUrl: process.env.TACHI_EXPLORER_URL ?? "https://regtest.tachibtcscan.com",
-    timelockBlocks: 1008,
-    estimatedTimelockHours: 168,
-    validatorCount: validators.length,
-    validators,
-    primitives: {
-      taurusVault: "Native BTC timelocked script tree with cooperative and unilateral exit leaves",
-      vtxoExecution: "Virtual UTXO off-chain settlement with Bitcoin anchoring",
-      satVM: "Smart contract execution layer compatible with Bitcoin Script and EVM/Wasm",
-      x402: "HTTP 402 native-sat machine-to-machine payment rails",
-    },
-  });
+app.addHook("preHandler", async (request: any, reply) => {
+  if (process.env.NODE_ENV === "test" || demoMode || request.method === "OPTIONS") return;
+  const routePath = request.routeOptions?.url ?? request.url.split("?")[0];
+  const publicRead = request.method === "GET" && (
+    routePath === "/api/health" ||
+    routePath.startsWith("/api/tachi/") ||
+    routePath === "/api/x402/resource" ||
+    routePath === "/api/invoices/:id" ||
+    routePath === "/api/invoices/:id/routes" ||
+    routePath === "/api/invoices/:id/settlement" ||
+    routePath === "/api/invoices/:id/events" ||
+    routePath === "/api/transactions/:txid"
+  );
+  if (!publicRead && !requireAdmin(request, reply)) return reply;
 });
 
-app.get("/api/tachi/validators", async (request) => envelope(request.id, await adapter.getValidators()));
+app.addHook("onClose", async () => {
+  store.flush(aggregates, quotes, transactions, refunds, payouts, webhookLogs, webhookUrls, idempotencyRecords, liquidity.reservedSats);
+});
+
+app.addHook("onSend", async (request, reply, payload) => {
+  const allowedOrigin = allowedBrowserOrigin(request.headers.origin);
+  if (allowedOrigin) reply.header("access-control-allow-origin", allowedOrigin);
+  reply.header("vary", "Origin");
+  reply.header("access-control-allow-methods", "GET,POST,OPTIONS");
+  reply.header("access-control-allow-headers", "content-type,idempotency-key,x-idempotency-key,authorization,x-402-payment,x-payment-invoice");
+  reply.header("access-control-expose-headers", "www-authenticate,x-402-invoice-id,x-402-price-sats,x-402-payment-url");
+  return payload;
+});
+app.options("/*", async (_request, reply) => reply.code(204).send());
+
+app.get("/api/health", async (request) => envelope(request.id, {
+  ok: true,
+  service: "satsloom-api",
+  paymentExecution: "simulated-only",
+  persistence: storeFile ? "single-process-local-json" : "ephemeral-process-memory",
+  sharedDatabase: false,
+}));
+
+function safeConfiguredOrigin(configured: string | undefined): string | null {
+  if (!configured) return null;
+  try {
+    const url = new URL(configured);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function configuredTachiOrigin(): string | null {
+  return safeConfiguredOrigin(process.env.TACHI_DAEMON_RPC_URL);
+}
+
+const tachiStatusUnavailable = {
+  reachable: false,
+  checked: false,
+  network: "regtest",
+  mode: "not-queried",
+  message: "The public API does not contact the Tachi endpoint; use the opt-in local integration spike.",
+};
+
+app.get("/api/tachi/status", async (request) => envelope(request.id, {
+  daemon: { ...tachiStatusUnavailable, endpointConfigured: configuredTachiOrigin() !== null },
+  validatorCount: 0,
+  capabilities: {
+    vaultCreation: "opt-in adapter spike only",
+    vaultVerification: "opt-in adapter spike only",
+    deposit: "opt-in regtest spike only; not run by this API",
+    vtxoRegistration: "opt-in regtest spike only; not run by this API",
+    vtxoQuery: "opt-in regtest spike only; not run by this API",
+    userPsbtSigning: "opt-in regtest spike only; not run by this API",
+    kdhtCooperativeSigning: "unavailable",
+    vtxoTransfer: "unavailable",
+    unilateralExitPreparation: "opt-in regtest spike only; not run by this API",
+  },
+}));
+
+app.get("/api/tachi/telemetry", async (request) => envelope(request.id, {
+  network: "regtest (spike configuration; not queried)",
+  daemon: { ...tachiStatusUnavailable, endpointConfigured: configuredTachiOrigin() !== null },
+  daemonUrl: configuredTachiOrigin(),
+  explorerUrl: safeConfiguredOrigin(process.env.TACHI_EXPLORER_URL),
+  timelockBlocks: null,
+  validatorCount: 0,
+  validators: [],
+  primitives: {
+    taurusVault: "separate opt-in SDK spike; no active demo vault",
+    vtxoExecution: "Not executed by the demo settlement API",
+    satVM: "Not exercised by this service",
+    x402: "HTTP 402 challenge with signed simulation receipt, not payment verification",
+  },
+}, { simulation: true }));
+
+app.get("/api/tachi/validators", async (request) => envelope(request.id, [], { simulation: true }));
 app.get("/api/merchant", async (request) => envelope(request.id, merchant));
 
 app.get("/api/overview", async (request) => {
   const all = [...aggregates.values()];
   const settled = all.filter((item) => item.lifecycle === "SETTLED");
-  const pending = all.filter((item) => item.lifecycle !== "SETTLED" && item.lifecycle !== "REFUNDED" && (item.invoice.status === "pending" || item.invoice.status === "confirmed"));
+  const pending = all.filter((item) => item.lifecycle !== "SETTLED" && item.lifecycle !== "REFUNDED" &&
+    (item.invoice.status === "pending" || item.invoice.status === "confirmed"));
   return envelope(request.id, {
     invoiceCount: all.length,
     settledSats: settled.reduce((sum, item) => sum + item.invoice.amountSats, 0n),
     pendingSats: pending.reduce((sum, item) => sum + item.invoice.amountSats, 0n),
-    routingLiquiditySats: 1_350_000n,
+    routingLiquiditySats: 0n,
+    simulatedRoutingLiquiditySats: 1_350_000n,
     reservedLiquiditySats: liquidity.reservedSats,
-  });
+  }, { simulation: true });
 });
 
 app.get("/api/liquidity", async (request) => envelope(request.id, liquidity, { simulation: true }));
 app.get("/api/transactions", async (request) => envelope(request.id, [...transactions.values()], { simulation: true }));
 app.get("/api/refunds", async (request) => envelope(request.id, [...refunds.values()], { simulation: true }));
 app.get("/api/payouts", async (request) => envelope(request.id, [...payouts.values()], { simulation: true }));
-app.get("/api/webhooks", async (request) => envelope(request.id, webhookLogs));
+app.get("/api/webhooks", async (request) => envelope(request.id, webhookLogs, { simulation: true }));
 
 app.post("/api/invoices", async (request: any, reply) => {
+  if (!requireDemoMode(request, reply)) return;
+  if (hasInvalidIdempotencyKey(request)) return reply.code(400).send(envelope(request.id, null, { error: "Idempotency-Key must be 8-200 safe characters" }));
+  const cached = cachedIdempotentResponse("invoice.create", request);
+  if (cached.conflict) return reply.code(409).send(envelope(request.id, null, { error: "Idempotency-Key was already used with a different request body" }));
+  if (cached.response) return { ...(cached.response as Record<string, unknown>), requestId: request.id };
+
   const amountSats = parseSats(request.body?.amountSats);
   if (amountSats === null) return reply.code(400).send(envelope(request.id, null, { error: "amountSats must be a positive integer within the Bitcoin supply" }));
   const memo = typeof request.body?.memo === "string" ? request.body.memo.trim().slice(0, 200) : undefined;
-  const webhookUrl = typeof request.body?.webhookUrl === "string" && request.body.webhookUrl.startsWith("http") ? request.body.webhookUrl : undefined;
+  const rawWebhookUrl = typeof request.body?.webhookUrl === "string" ? request.body.webhookUrl.trim() : "";
+  const webhookUrl = rawWebhookUrl ? validatedWebhookUrl(rawWebhookUrl) : null;
+  if (rawWebhookUrl && !webhookUrl) {
+    return reply.code(400).send(envelope(request.id, null, { error: "Webhook URL requires HTTPS, an exact SATSLOOM_WEBHOOK_ALLOWED_ORIGINS match, and SATSLOOM_WEBHOOK_SECRET" }));
+  }
 
   const now = new Date();
   const invoice: Invoice = {
@@ -404,15 +523,27 @@ app.post("/api/invoices", async (request: any, reply) => {
   quotes.set(invoice.id, createDemoQuote(invoice));
   if (webhookUrl) webhookUrls.set(invoice.id, webhookUrl);
   persist();
-  return envelope(request.id, { ...invoice, lifecycle: aggregate.lifecycle });
+  const response = envelope(request.id, { ...invoice, lifecycle: aggregate.lifecycle }, { simulation: true });
+  rememberIdempotentResponse("invoice.create", request, response);
+  return response;
 });
 
 app.post("/api/checkout/session", async (request: any, reply) => {
+  if (!requireDemoMode(request, reply)) return;
+  if (hasInvalidIdempotencyKey(request)) return reply.code(400).send(envelope(request.id, null, { error: "Idempotency-Key must be 8-200 safe characters" }));
+  const cached = cachedIdempotentResponse("checkout.session", request);
+  if (cached.conflict) return reply.code(409).send(envelope(request.id, null, { error: "Idempotency-Key was already used with a different request body" }));
+  if (cached.response) return { ...(cached.response as Record<string, unknown>), requestId: request.id };
+
   const amountSats = parseSats(request.body?.amountSats);
   if (amountSats === null) return reply.code(400).send(envelope(request.id, null, { error: "amountSats must be a positive integer within the Bitcoin supply" }));
   const now = new Date();
   const requestedMemo = typeof request.body?.memo === "string" ? request.body.memo : `Order ${request.body?.orderId ?? ""}`.trim();
-  const webhookUrl = typeof request.body?.webhookUrl === "string" && request.body.webhookUrl.startsWith("http") ? request.body.webhookUrl : undefined;
+  const rawWebhookUrl = typeof request.body?.webhookUrl === "string" ? request.body.webhookUrl.trim() : "";
+  const webhookUrl = rawWebhookUrl ? validatedWebhookUrl(rawWebhookUrl) : null;
+  if (rawWebhookUrl && !webhookUrl) {
+    return reply.code(400).send(envelope(request.id, null, { error: "Webhook URL requires HTTPS, an exact SATSLOOM_WEBHOOK_ALLOWED_ORIGINS match, and SATSLOOM_WEBHOOK_SECRET" }));
+  }
 
   const invoice: Invoice = {
     id: crypto.randomUUID(),
@@ -427,34 +558,29 @@ app.post("/api/checkout/session", async (request: any, reply) => {
   quotes.set(invoice.id, createDemoQuote(invoice));
   if (webhookUrl) webhookUrls.set(invoice.id, webhookUrl);
   persist();
-
-  const regtestVaultAddress = "bcrt1p4m2ttqsx8veyvh62ezehxf9y2732yyymve4qvr76qw7ue5ttu66qppnr0q";
-  const btcAmount = (Number(amountSats) / 100_000_000).toFixed(8);
-  const qrPayload = `bitcoin:${regtestVaultAddress}?amount=${btcAmount}&label=${encodeURIComponent(invoice.memo ?? "SatsLoom Invoice")}&message=${invoice.id}`;
-
-  return envelope(
-    request.id,
-    {
-      checkoutSessionId: crypto.randomUUID(),
-      invoiceId: invoice.id,
-      amountSats: invoice.amountSats.toString(),
-      memo: invoice.memo,
-      paymentStatus: invoice.status,
-      paymentUrl: `/invoices/${invoice.id}`,
-      qrPayload,
-      invoice,
-    },
-    { simulation: true },
-  );
+  const response = envelope(request.id, {
+    checkoutSessionId: crypto.randomUUID(),
+    invoiceId: invoice.id,
+    amountSats: invoice.amountSats.toString(),
+    memo: invoice.memo,
+    paymentStatus: invoice.status,
+    paymentUrl: `/#checkout/${invoice.id}`,
+    qrPayload: null,
+    simulation: true,
+    invoice,
+  }, { simulation: true });
+  rememberIdempotentResponse("checkout.session", request, response);
+  return response;
 });
 
 app.get("/api/invoices/:id", async (request: any, reply) => {
-  const aggregate = aggregateFor(request.params.id);
+  const aggregate = aggregates.get(request.params.id);
   return aggregate ? envelope(request.id, invoiceView(aggregate)) : reply.code(404).send(envelope(request.id, null, { error: "invoice not found" }));
 });
 
 app.post("/api/invoices/:id/simulate-payment", async (request: any, reply) => {
-  const aggregate = aggregateFor(request.params.id);
+  if (!requireDemoMode(request, reply)) return;
+  const aggregate = aggregates.get(request.params.id);
   if (!aggregate) return reply.code(404).send(envelope(request.id, null, { error: "invoice not found" }));
   try {
     const result = confirmPayment(aggregate);
@@ -464,16 +590,21 @@ app.post("/api/invoices/:id/simulate-payment", async (request: any, reply) => {
     }
     return envelope(request.id, invoiceView(aggregate), { simulation: true, idempotent: result.idempotent });
   } catch (error) {
-    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message }));
+    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message, simulation: true }));
   }
 });
 
 app.get("/api/invoices/:id/events", async (request: any, reply: any) => {
-  const aggregate = aggregateFor(request.params.id);
+  const aggregate = aggregates.get(request.params.id);
   if (!aggregate) return reply.code(404).send(envelope(request.id, null, { error: "invoice not found" }));
   reply.hijack();
   const response = reply.raw;
-  const headers: Record<string, string> = { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" };
+  const headers: Record<string, string> = {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  };
   const eventOrigin = allowedBrowserOrigin(request.headers.origin);
   if (eventOrigin) headers["access-control-allow-origin"] = eventOrigin;
   response.writeHead(200, headers);
@@ -488,13 +619,14 @@ app.get("/api/invoices/:id/events", async (request: any, reply: any) => {
 });
 
 app.get("/api/invoices/:id/routes", async (request: any, reply) => {
-  const quote = quoteFor(request.params.id);
+  const quote = quotes.get(request.params.id);
   return quote ? envelope(request.id, quote, { simulation: true }) : reply.code(404).send(envelope(request.id, null, { error: "quote not found" }));
 });
 
 app.post("/api/invoices/:id/select-route", async (request: any, reply) => {
-  const aggregate = aggregateFor(request.params.id);
-  const quote = quoteFor(request.params.id);
+  if (!requireDemoMode(request, reply)) return;
+  const aggregate = aggregates.get(request.params.id);
+  const quote = quotes.get(request.params.id);
   if (!aggregate || !quote) return reply.code(404).send(envelope(request.id, null, { error: "invoice or quote not found" }));
   try {
     const decision = selectSettlementRoute(aggregate, quote, merchant);
@@ -502,14 +634,18 @@ app.post("/api/invoices/:id/select-route", async (request: any, reply) => {
     persist();
     return envelope(request.id, decision, { simulation: true });
   } catch (error) {
-    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message }));
+    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message, simulation: true }));
   }
 });
 
 app.post("/api/invoices/:id/invalidate-best-route", async (request: any, reply) => {
-  const aggregate = aggregateFor(request.params.id);
-  const quote = quoteFor(request.params.id);
+  if (!requireDemoMode(request, reply)) return;
+  const aggregate = aggregates.get(request.params.id);
+  const quote = quotes.get(request.params.id);
   if (!aggregate || !quote) return reply.code(404).send(envelope(request.id, null, { error: "invoice or quote not found" }));
+  if (["SETTLED", "REFUNDED", "SETTLEMENT_FAILED", "REFUND_REQUIRED"].includes(aggregate.lifecycle)) {
+    return reply.code(409).send(envelope(request.id, null, { error: "Route changes are closed for this terminal invoice state", simulation: true }));
+  }
   const routeId = aggregate.decision?.selectedRouteId ?? quote.routes[0]?.id;
   const route = quote.routes.find((candidate) => candidate.id === routeId);
   if (route) route.available = false;
@@ -519,8 +655,9 @@ app.post("/api/invoices/:id/invalidate-best-route", async (request: any, reply) 
 });
 
 app.post("/api/invoices/:id/settle", async (request: any, reply) => {
-  const aggregate = aggregateFor(request.params.id);
-  const quote = quoteFor(request.params.id);
+  if (!requireDemoMode(request, reply)) return;
+  const aggregate = aggregates.get(request.params.id);
+  const quote = quotes.get(request.params.id);
   if (!aggregate || !quote) return reply.code(404).send(envelope(request.id, null, { error: "invoice or quote not found" }));
   try {
     let job = settlementJobs.get(aggregate.invoice.id);
@@ -530,27 +667,25 @@ app.post("/api/invoices/:id/settle", async (request: any, reply) => {
         txid: `sim-${route.id}-${aggregate.invoice.id.slice(0, 8)}`,
       }));
       settlementJobs.set(aggregate.invoice.id, job);
-      void job.then(
-        () => settlementJobs.delete(aggregate.invoice.id),
-        () => settlementJobs.delete(aggregate.invoice.id),
-      );
+      void job.then(() => settlementJobs.delete(aggregate.invoice.id), () => settlementJobs.delete(aggregate.invoice.id));
     }
     const result = await job;
     if (result.settlement.txid) transactions.set(result.settlement.txid, result.settlement);
     publishInvoiceEvent(aggregate.invoice.id, "invoice.settled", { settlement: result.settlement, aggregate: invoiceView(aggregate) });
     persist();
     return envelope(request.id, result.settlement, {
-      simulation: result.settlement.simulation,
+      simulation: true,
       idempotent: result.idempotent,
       fallbackHistory: aggregate.fallbackHistory,
     });
   } catch (error) {
-    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message }));
+    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message, simulation: true }));
   }
 });
 
 app.post("/api/invoices/:id/refund", async (request: any, reply) => {
-  const aggregate = aggregateFor(request.params.id);
+  if (!requireDemoMode(request, reply)) return;
+  const aggregate = aggregates.get(request.params.id);
   if (!aggregate) return reply.code(404).send(envelope(request.id, null, { error: "invoice not found" }));
   const existing = refunds.get(aggregate.invoice.id);
   if (existing) return envelope(request.id, existing, { simulation: true, idempotent: true });
@@ -567,7 +702,7 @@ app.post("/api/invoices/:id/refund", async (request: any, reply) => {
     invoiceId: aggregate.invoice.id,
     amountSats: aggregate.invoice.amountSats,
     status: "refunded",
-    reason: request.body?.reason ?? "Merchant requested refund",
+    reason: typeof request.body?.reason === "string" ? request.body.reason.slice(0, 200) : "Merchant requested refund",
     simulation: true,
     createdAt: new Date().toISOString(),
   };
@@ -578,13 +713,13 @@ app.post("/api/invoices/:id/refund", async (request: any, reply) => {
 });
 
 app.post("/api/payouts", async (request: any, reply) => {
+  if (!requireDemoMode(request, reply)) return;
   const amountSats = parseSats(request.body?.amountSats);
   if (amountSats === null) return reply.code(400).send(envelope(request.id, null, { error: "amountSats must be a positive integer within the Bitcoin supply" }));
   const availableSats = liquidity.vtxoSats + liquidity.providerSats - liquidity.reservedSats;
-  if (amountSats > availableSats) return reply.code(409).send(envelope(request.id, null, { error: "Insufficient available routing liquidity" }));
-  const destination = typeof request.body?.destination === "string" ? request.body.destination.trim().slice(0, 200) : "merchant-regtest-address";
-  if (!destination) return reply.code(400).send(envelope(request.id, null, { error: "destination is required" }));
-
+  if (amountSats > availableSats) return reply.code(409).send(envelope(request.id, null, { error: "Insufficient sample routing capacity" }));
+  const destination = typeof request.body?.destination === "string" ? request.body.destination.trim().slice(0, 200) : "";
+  if (!destination) return reply.code(400).send(envelope(request.id, null, { error: "destination label is required; payouts are simulation records and do not broadcast" }));
   const payout = {
     id: crypto.randomUUID(),
     amountSats,
@@ -600,14 +735,9 @@ app.post("/api/payouts", async (request: any, reply) => {
 });
 
 app.get("/api/invoices/:id/settlement", async (request: any, reply) => {
-  const aggregate = aggregateFor(request.params.id);
+  const aggregate = aggregates.get(request.params.id);
   return aggregate
-    ? envelope(request.id, {
-        settlement: aggregate.settlement ?? null,
-        lifecycle: aggregate.lifecycle,
-        decision: aggregate.decision,
-        fallbackHistory: aggregate.fallbackHistory,
-      })
+    ? envelope(request.id, { settlement: aggregate.settlement ?? null, lifecycle: aggregate.lifecycle, decision: aggregate.decision, fallbackHistory: aggregate.fallbackHistory })
     : reply.code(404).send(envelope(request.id, null, { error: "invoice not found" }));
 });
 
@@ -618,34 +748,23 @@ app.get("/api/transactions/:txid", async (request: any, reply) => {
     : reply.code(404).send(envelope(request.id, null, { error: "transaction not found" }));
 });
 
-// x402 Endpoints
 app.get("/api/x402/resource", async (request: any, reply) => {
-  const authHeader = (request.headers["authorization"] ?? "") as string;
-  const paymentHeader = (request.headers["x-payment-invoice"] ?? request.headers["x-402-payment"] ?? "") as string;
-
-  let invoiceId = "";
-  if (paymentHeader) {
-    invoiceId = paymentHeader.trim();
-  } else if (authHeader.startsWith("L402 ")) {
-    const token = authHeader.slice(5).trim();
-    invoiceId = token.split(":")[0];
+  if (!demoMode || !proofSecret) {
+    return reply.code(503).send(envelope(request.id, null, { error: "Live x402 payment verification is not configured; the signed-receipt demo is unavailable" }));
   }
-
-  if (invoiceId) {
-    const aggregate = aggregates.get(invoiceId);
-    if (aggregate && (aggregate.invoice.status === "confirmed" || aggregate.lifecycle === "SETTLED")) {
+  const authorization = typeof request.headers.authorization === "string" ? request.headers.authorization : "";
+  const receipt = verifyDemoReceipt(authorization);
+  if (receipt) {
+    const aggregate = aggregates.get(receipt.invoiceId);
+    if (aggregate?.purpose === "x402-demo" && aggregate.lifecycle === "SETTLED" &&
+      aggregate.settlement?.status === "settled" && aggregate.settlement.simulation) {
       return envelope(request.id, {
         unlocked: true,
-        protocol: "x402",
-        invoiceId,
-        service: "Tachi Bitcoin Agentic Execution Layer - Autonomous Compute Feed",
-        data: {
-          prediction: "BTC/USDT Bullish divergence anchored at Taproot height 840,000",
-          recommendedAction: "VTXO Liquidity Rebalance",
-          confidenceScore: 0.942,
-          timestamp: new Date().toISOString(),
-        },
-      });
+        protocol: "x402-demo",
+        invoiceId: receipt.invoiceId,
+        service: "SatsLoom sample resource",
+        data: { message: "This is sample content returned after verifying a signed demo receipt." },
+      }, { simulation: true, proof: "signed-demo-receipt-not-payment-proof" });
     }
   }
 
@@ -653,62 +772,82 @@ app.get("/api/x402/resource", async (request: any, reply) => {
   const invoice: Invoice = {
     id: crypto.randomUUID(),
     amountSats: 50n,
-    memo: "x402 Autonomous Agent Compute Access (50 sats)",
+    memo: "x402 demo challenge (50 sats simulated)",
     status: "created",
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
   };
   const aggregate = markQuoted(createInvoiceAggregate(invoice));
+  aggregate.purpose = "x402-demo";
   aggregates.set(invoice.id, aggregate);
   quotes.set(invoice.id, createDemoQuote(invoice));
   persist();
-
-  reply
+  return reply
     .code(402)
-    .header("www-authenticate", `L402 invoice="${invoice.id}", price="50", currency="SAT"`)
+    .header("www-authenticate", `SatsLoom-Demo invoice="${invoice.id}", price="50", currency="SAT", simulation="true"`)
     .header("x-402-invoice-id", invoice.id)
     .header("x-402-price-sats", "50")
-    .header("x-402-payment-url", `/api/invoices/${invoice.id}`)
-    .send(
-      envelope(
-        request.id,
-        {
-          error: "Payment Required",
-          status: 402,
-          invoiceId: invoice.id,
-          amountSats: "50",
-          memo: invoice.memo,
-          message: "Provide 'X-Payment-Invoice: <id>' or 'Authorization: L402 <id>' after settlement.",
-        },
-        { simulation: true },
-      ),
-    );
+    .header("x-402-payment-url", `/#checkout/${invoice.id}`)
+    .send(envelope(request.id, {
+      error: "Payment Required (simulation)",
+      status: 402,
+      invoiceId: invoice.id,
+      amountSats: "50",
+      memo: invoice.memo,
+      message: "This demo does not accept sats. POST /api/x402/agent-pay produces a signed simulation receipt, not proof of Bitcoin payment.",
+    }, { simulation: true }));
 });
 
 app.post("/api/x402/agent-pay", async (request: any, reply) => {
-  const invoiceId = request.body?.invoiceId;
+  if (!requireDemoMode(request, reply)) return;
+  if (!proofSecret) return reply.code(503).send(envelope(request.id, null, { error: "Configure SATSLOOM_PROOF_SECRET to issue signed demo receipts" }));
+  const invoiceId = typeof request.body?.invoiceId === "string" ? request.body.invoiceId : "";
   const aggregate = aggregates.get(invoiceId);
   const quote = quotes.get(invoiceId);
-  if (!aggregate || !quote) return reply.code(404).send(envelope(request.id, null, { error: "Invoice not found" }));
-
+  if (!aggregate || !quote || aggregate.purpose !== "x402-demo" || aggregate.invoice.amountSats !== 50n) {
+    return reply.code(404).send(envelope(request.id, null, { error: "Valid x402 demo challenge not found" }));
+  }
+  if (aggregate.lifecycle === "SETTLED" && aggregate.settlement?.status === "settled" && aggregate.settlement.simulation) {
+    const expiresAt = new Date(Date.now() + 2 * 60_000).toISOString();
+    return envelope(request.id, {
+      invoiceId,
+      status: "simulated",
+      proofToken: signDemoReceipt(invoiceId, expiresAt),
+      proofExpiresAt: expiresAt,
+      settlement: aggregate.settlement,
+    }, { simulation: true, idempotent: true });
+  }
   try {
-    confirmPayment(aggregate);
-    selectSettlementRoute(aggregate, quote, merchant);
-    const result = await settleInvoice(aggregate, quote, merchant, async (route) => ({
-      simulation: true,
-      txid: `x402-${route.id}-${invoiceId.slice(0, 8)}`,
-    }));
+    let job = settlementJobs.get(invoiceId);
+    let sharedInFlightJob = Boolean(job);
+    if (!job) {
+      confirmPayment(aggregate);
+      selectSettlementRoute(aggregate, quote, merchant);
+      job = settleInvoice(aggregate, quote, merchant, async (route) => ({
+        simulation: true,
+        txid: `demo-${route.id}-${invoiceId.slice(0, 8)}`,
+      }));
+      settlementJobs.set(invoiceId, job);
+      void job.then(() => settlementJobs.delete(invoiceId), () => settlementJobs.delete(invoiceId));
+      sharedInFlightJob = false;
+    }
+    const result = await job;
+    if (result.settlement.status !== "settled") {
+      return reply.code(409).send(envelope(request.id, result.settlement, { error: "Demo settlement did not complete", simulation: true }));
+    }
     if (result.settlement.txid) transactions.set(result.settlement.txid, result.settlement);
     publishInvoiceEvent(invoiceId, "invoice.settled", { settlement: result.settlement, aggregate: invoiceView(aggregate) });
     persist();
+    const expiresAt = new Date(Date.now() + 2 * 60_000).toISOString();
     return envelope(request.id, {
       invoiceId,
-      status: "settled",
-      proofToken: `L402 ${invoiceId}:simulated-preimage`,
+      status: "simulated",
+      proofToken: signDemoReceipt(invoiceId, expiresAt),
+      proofExpiresAt: expiresAt,
       settlement: result.settlement,
-    });
+    }, { simulation: true, idempotent: result.idempotent || sharedInFlightJob });
   } catch (error) {
-    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message }));
+    return reply.code(409).send(envelope(request.id, null, { error: (error as Error).message, simulation: true }));
   }
 });
 

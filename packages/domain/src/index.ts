@@ -30,6 +30,7 @@ export type InvoiceAggregate = {
   executionStarted: boolean;
   settlement?: Settlement;
   fallbackHistory: FallbackEvent[];
+  purpose?: "x402-demo";
 };
 
 export type SettlementExecution = {
@@ -72,11 +73,25 @@ export function selectSettlementRoute(
   now = Date.now(),
 ): RouteDecision {
   if (aggregate.executionStarted && aggregate.decision) return aggregate.decision;
+  if (aggregate.lifecycle === "SETTLED" || aggregate.lifecycle === "REFUNDED") {
+    throw new Error("Invoice is already in a terminal state; route selection is closed");
+  }
+  if (aggregate.lifecycle === "SETTLEMENT_FAILED" || aggregate.lifecycle === "REFUND_REQUIRED") {
+    throw new Error("Settlement has a terminal failure state; reconcile it before selecting another route");
+  }
   if (aggregate.invoice.status !== "confirmed") throw new Error("Payment must be confirmed before route selection");
   const decision = chooseRoute(aggregate.invoice, quote, merchant, now);
   aggregate.decision = decision;
   aggregate.lifecycle = "ROUTE_SELECTED";
   return decision;
+}
+
+/** Only use this error when the adapter can guarantee the failed attempt moved no funds. */
+export class RetryableSettlementError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RetryableSettlementError";
+  }
 }
 
 export async function settleInvoice(
@@ -87,6 +102,9 @@ export async function settleInvoice(
   now = Date.now(),
 ): Promise<{ settlement: Settlement; idempotent: boolean }> {
   if (aggregate.settlement?.status === "settled") return { settlement: aggregate.settlement, idempotent: true };
+  if ((aggregate.lifecycle === "SETTLEMENT_FAILED" || aggregate.lifecycle === "REFUND_REQUIRED") && aggregate.settlement) {
+    return { settlement: aggregate.settlement, idempotent: true };
+  }
   if (aggregate.executionStarted) throw new Error("Settlement is already in progress");
   if (aggregate.invoice.status !== "confirmed") throw new Error("Payment must be confirmed before settlement");
   if (Date.parse(quote.quoteExpiresAt) <= now) {
@@ -94,9 +112,9 @@ export async function settleInvoice(
     throw new Error("Settlement quote expired before execution");
   }
 
-  let decision = aggregate.decision ?? selectSettlementRoute(aggregate, quote, merchant, now);
-  const previousRouteId = decision.selectedRouteId;
-  let route = quote.routes.find((candidate) => candidate.id === previousRouteId);
+  const initialDecision = aggregate.decision ?? selectSettlementRoute(aggregate, quote, merchant, now);
+  const initialRouteId = initialDecision.selectedRouteId;
+  let route = quote.routes.find((candidate) => candidate.id === initialRouteId);
   const stillEligible = eligibleRoutes(aggregate.invoice, quote, merchant, now).some((candidate) => candidate.id === route?.id);
 
   if (!route || !stillEligible) {
@@ -104,42 +122,78 @@ export async function settleInvoice(
     if (alternatives.length === 0) {
       aggregate.lifecycle = "REFUND_REQUIRED";
       aggregate.settlement = {
-        id: crypto.randomUUID(), invoiceId: aggregate.invoice.id, routeId: previousRouteId,
+        id: crypto.randomUUID(), invoiceId: aggregate.invoice.id, routeId: initialRouteId,
         status: "refund_required", error: "No eligible fallback route", simulation: true,
       };
       return { settlement: aggregate.settlement, idempotent: false };
     }
-    decision = chooseRoute(aggregate.invoice, quote, merchant, now);
+    const decision = chooseRoute(aggregate.invoice, quote, merchant, now);
     route = quote.routes.find((candidate) => candidate.id === decision.selectedRouteId)!;
     aggregate.decision = decision;
     aggregate.lifecycle = "FALLBACK_SELECTED";
     aggregate.fallbackHistory.push({
-      fromRouteId: previousRouteId,
+      fromRouteId: initialRouteId,
       toRouteId: route.id,
-      reason: `Preferred route ${previousRouteId} became ineligible; selected ${route.id}. ${decision.reason}`,
+      reason: `Preferred route ${initialRouteId} became ineligible before execution; selected ${route.id}. ${decision.reason}`,
       occurredAt: new Date(now).toISOString(),
     });
   }
 
-  aggregate.executionStarted = true;
-  aggregate.lifecycle = "SETTLING";
-  aggregate.settlement = {
-    id: aggregate.settlement?.id ?? crypto.randomUUID(),
-    invoiceId: aggregate.invoice.id,
-    routeId: route.id,
-    status: aggregate.fallbackHistory.length ? "fallback" : "pending",
-    simulation: route.simulation,
-  };
-  try {
-    const result = await execute(route);
-    aggregate.settlement = { ...aggregate.settlement, ...result, status: "settled" };
-    aggregate.lifecycle = "SETTLED";
-    return { settlement: aggregate.settlement, idempotent: false };
-  } catch (error) {
-    aggregate.settlement.status = "failed";
-    aggregate.settlement.error = error instanceof Error ? error.message : String(error);
-    aggregate.lifecycle = "SETTLEMENT_FAILED";
-    aggregate.executionStarted = false;
-    return { settlement: aggregate.settlement, idempotent: false };
+  const attemptedRouteIds = new Set<string>();
+  let nextRoute = route;
+  while (nextRoute) {
+    attemptedRouteIds.add(nextRoute.id);
+    aggregate.executionStarted = true;
+    aggregate.lifecycle = "SETTLING";
+    aggregate.settlement = {
+      id: aggregate.settlement?.id ?? crypto.randomUUID(),
+      invoiceId: aggregate.invoice.id,
+      routeId: nextRoute.id,
+      status: aggregate.fallbackHistory.length ? "fallback" : "pending",
+      simulation: nextRoute.simulation,
+    };
+
+    try {
+      const result = await execute(nextRoute);
+      aggregate.settlement = { ...aggregate.settlement, ...result, status: "settled" };
+      aggregate.lifecycle = "SETTLED";
+      aggregate.executionStarted = false;
+      return { settlement: aggregate.settlement, idempotent: false };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      aggregate.settlement.status = "failed";
+      aggregate.settlement.error = message;
+      aggregate.executionStarted = false;
+
+      if (!(error instanceof RetryableSettlementError)) {
+        aggregate.lifecycle = "SETTLEMENT_FAILED";
+        return { settlement: aggregate.settlement, idempotent: false };
+      }
+
+      // The adapter explicitly guaranteed this route did not move funds, so it is safe to try another.
+      nextRoute.available = false;
+      const alternatives = eligibleRoutes(aggregate.invoice, quote, merchant, now)
+        .filter((candidate) => !attemptedRouteIds.has(candidate.id));
+      if (alternatives.length === 0) {
+        aggregate.lifecycle = "REFUND_REQUIRED";
+        aggregate.settlement.status = "refund_required";
+        aggregate.settlement.error = `No eligible fallback route after ${nextRoute.id} failed safely: ${message}`;
+        return { settlement: aggregate.settlement, idempotent: false };
+      }
+
+      const previousRouteId = nextRoute.id;
+      const decision = chooseRoute(aggregate.invoice, { ...quote, routes: alternatives }, merchant, now);
+      nextRoute = alternatives.find((candidate) => candidate.id === decision.selectedRouteId)!;
+      aggregate.decision = decision;
+      aggregate.lifecycle = "FALLBACK_SELECTED";
+      aggregate.fallbackHistory.push({
+        fromRouteId: previousRouteId,
+        toRouteId: nextRoute.id,
+        reason: `Route ${previousRouteId} reported a safe retryable failure (${message}); selected ${nextRoute.id}. ${decision.reason}`,
+        occurredAt: new Date(now).toISOString(),
+      });
+    }
   }
+
+  throw new Error("Settlement ended without a route result");
 }

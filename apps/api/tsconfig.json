@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "src/server.ts",
+    "src/storage.ts",
+    "../../packages/shared/src/index.ts",
+    "../../packages/router/src/index.ts",
+    "../../packages/domain/src/index.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "../../packages/**/*.test.ts"
+  ]
+}

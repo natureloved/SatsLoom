@@ -37,9 +37,9 @@ async function main() {
   let spikeStage = "vault";
   let vaultError: string | undefined;
   try {
-    const vault = await adapter.createVault({
-      mnemonic: process.env.TACHI_TEST_MNEMONIC ?? "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-    });
+    const mnemonic = process.env.TACHI_TEST_MNEMONIC;
+    if (!mnemonic) throw new Error("Set TACHI_TEST_MNEMONIC to a disposable regtest-only seed before running the spike");
+    const vault = await adapter.createVault({ mnemonic });
     vaultCreation = vault.id !== "unavailable";
     vaultVerification = (await adapter.verifyVault(vault)).valid;
     console.error(JSON.stringify({

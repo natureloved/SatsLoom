@@ -1,9 +1,14 @@
-# SatsLoom 60–90 second demo
+# Demo walkthrough
 
-1. Start the API and web app, then open the dashboard. Point out the degraded-mode badge and live Tachi status cards.
-2. Create a 50,000-sat invoice. Explain that SatsLoom is a merchant router, not a wallet.
-3. Click **Simulate payment**. The invoice moves to `PAYMENT_CONFIRMED`.
-4. Click **Select best route**. The inspector shows the fast VTXO route, LP fallback, and timelocked on-chain route with fee, latency, capacity, expiry, and exit risk.
-5. Click **Invalidate preferred + settle fallback**. The state machine marks the VTXO route unavailable, records fallback history, chooses the LP route, and settles it as an explicitly simulated result.
-6. Show the settlement result: lifecycle, route, fallback explanation, simulation badge, and transaction identifier.
-7. In a terminal, run `npm run spike:tachi` and show the real regtest proof: vault metadata, deposit txid, VTXO id, and `userPsbtSigning=true`. Explain that KDHT cooperative signing remains unavailable rather than being misrepresented.
+This walkthrough demonstrates local application state only. No Bitcoin or Tachi settlement occurs.
+
+1. Run `npm ci`, `npm test`, then `npm run dev`.
+2. Open `http://localhost:5174` and note the simulation-only banner and the absence of live settlement metrics.
+3. Create a demo invoice. The checkout page has no payment address or QR code; it explicitly states that no sats are received.
+4. Click **Simulate invoice confirmation**. The invoice state changes in the local API, and an SSE event reports that application-state change.
+5. Select a sample route, invalidate it, then settle. The response records a simulated fallback route and `simulation: true`; no funds move.
+6. Open the x402 sandbox. It demonstrates a 402 challenge, a demo state transition, and a signed simulation receipt. An invoice ID alone does not unlock the sample resource.
+7. Inspect operations and webhook screens. Values are demo data; outgoing webhooks require operator allow-list/secret configuration.
+8. Optionally run `npm run spike:tachi` only after reviewing its configuration. The spike is separate from the public API's simulated settlement flow and may contact a regtest endpoint.
+
+Never present these demo results as customer payment, production availability, or verified Bitcoin settlement.

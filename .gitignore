@@ -2,3 +2,5 @@ node_modules
 dist
 .env
 *.db
+apps/api/data/*.json
+apps/api/data/*.tmp
