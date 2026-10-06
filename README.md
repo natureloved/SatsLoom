@@ -2,6 +2,8 @@
 
 SatsLoom is a TypeScript/Node.js and React demonstration of a merchant-invoice state machine, deterministic single-route scoring, and an HTTP 402-style agent workflow. **The public demo is not a Bitcoin payment processor.** Invoice confirmation, settlement, refunds, payouts, liquidity, and x402 agent-pay are simulated records; no sats are received, verified, transferred, refunded, or broadcast.
 
+For what it would take to make this a real product — rail choice, the current Tachi/Ark/Lightning options, engineering workstreams, liquidity, compliance, cost, and a 90-day plan — see [`docs/live-product-plan.md`](docs/live-product-plan.md). That document is a plan, not a change in status: until it is executed, everything below still holds.
+
 ## Status and limitations
 
 - The API returns `simulation: true` on simulated flows and uses a degraded mode.
