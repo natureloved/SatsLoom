@@ -1237,9 +1237,62 @@ export function App() {
               </div>
 
               <div className="live-notes">
-                <span>Scan the QR with any signet wallet, or pay it with <code>lncli payinvoice</code>.</span>
+                <span>Any signet wallet can pay it — scan the QR, or use <code>lncli payinvoice</code>.</span>
                 <span>Test coins only — they have no fiat value.</span>
               </div>
+
+              {/* How to actually try this. Won't claim a connection exists that isn't there: the
+                  invoice is the payment primitive, so the honest onboarding is how to get coins and
+                  a wallet, not a connect button. */}
+              <details className="live-howto">
+                <summary>
+                  No signet wallet yet? <span>Three steps to a real payment →</span>
+                </summary>
+                <ol className="live-steps">
+                  <li>
+                    <b>Get test coins.</b> A signet faucet will pay a fresh <code>lntbs…</code>
+                    invoice with no account or API key — request 500–1500 sats.
+                    <ul>
+                      <li>
+                        <a href="https://arkfaucet.com/" target="_blank" rel="noreferrer noopener">
+                          arkfaucet.com
+                        </a>{" "}
+                        — Lightning rail, no sign-up (used to fund this project's own node)
+                      </li>
+                      <li>
+                        <a href="https://bitcoinsignetfaucet.com/" target="_blank" rel="noreferrer noopener">
+                          bitcoinsignetfaucet.com
+                        </a>{" "}
+                        — on-chain signet txs
+                      </li>
+                    </ul>
+                  </li>
+                  <li>
+                    <b>Fund a Lightning wallet set to signet.</b> The wallet must be on
+                    <em> signet</em>, not mainnet or testnet — an address alone cannot tell them
+                    apart. Paste the invoice from step 3 into the faucet to fund a wallet you
+                    control.
+                    <ul>
+                      <li>
+                        <b>Command line (what our own proof uses):</b>{" "}
+                        <code>lnd --network=signet</code>, then{" "}
+                        <code>lncli payinvoice &lt;bolt11&gt;</code>
+                      </li>
+                    </ul>
+                  </li>
+                  <li>
+                    <b>Come back and pay.</b> Issue an invoice above, scan or paste the{" "}
+                    <code>lntbs…</code> string, and this panel shows it credited the moment the
+                    node reveals the preimage — the same proof that decides whether goods ship.
+                  </li>
+                </ol>
+                <p className="live-howto-foot">
+                  Want to test without a wallet of your own? The repository ships an end-to-end proof
+                  that issues an invoice, pays it from a second node, and checks that{" "}
+                  <code>sha256(preimage) == paymentHash</code>:{" "}
+                  <code>node scripts/live-signet-proof.mts</code>
+                </p>
+              </details>
 
               {liveCheckoutError && !showLiveCheckout && (
                 <div className="live-error" role="status">{liveCheckoutError}</div>
