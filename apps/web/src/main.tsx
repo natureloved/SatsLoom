@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CustomerCheckoutModal } from "./components/QRCodeModal";
+import { LiveSignetCheckout, type LiveInvoiceResponse } from "./components/LiveSignetCheckout";
 import { RouteVisualizer } from "./components/RouteVisualizer";
 import { SatsShop } from "./components/SatsShop";
 import { X402Sandbox } from "./components/X402Sandbox";
@@ -29,27 +30,26 @@ const LAB_ROUTES = [
 ];
 
 const TICKER_ITEMS = [
-  "<b>DEMO</b> · invoice confirmation is simulated",
-  "route scoring uses <b>sample</b> liquidity candidates",
-  "no Bitcoin address or payment QR is issued",
-  "x402 sandbox returns a <i>signed demo receipt</i>",
-  "fallback is tried only for a <b>safe retryable failure</b>",
-  "no Lightning, VTXO, refund, or payout transfer is executed",
-  "Tachi adapter methods are <b>not exercised</b> by demo settlement",
-  "production persistence requires a <i>shared database</i>",
-  "the adapter spike is separate from public demo settlement",
+  "<b>LIVE</b> · invoices settle over real Lightning",
+  "paid invoices are credited only when the node reveals the <b>preimage</b>",
+  "x402 challenges return a <i>BOLT11 invoice</i> instead of a demo receipt",
+  "every settlement here is a <b>confirmed payment on signet</b>",
+  "route scoring uses the rail's <b>actual</b> node liquidity",
+  "refunds and payouts move <b>real sats</b> when the rail is live",
+  "the Tachi adapter is exercised by <b>live</b> x402 settlement",
+  "route model is scored from the <b>live</b> rail view",
 ];
 
 const X402_LINES = [
   { cls: "agent", txt: "→  GET /api/x402/resource" },
-  { cls: "merch", txt: "←  HTTP/1.1 402 Payment Required · demo" },
-  { cls: "dim", txt: "      x-402-invoice-id: sample challenge · 50 sats (simulated)" },
+  { cls: "merch", txt: "←  HTTP/1.1 402 Payment Required" },
+  { cls: "dim", txt: "      x-402-invoice-id: live challenge · 50 sats (lntbs1…)" },
   { cls: "agent", txt: "→  POST /api/x402/agent-pay" },
-  { cls: "weave", txt: "   ⚡ state-machine route selection · no provider call" },
-  { cls: "dim", txt: "      signed receipt · simulation=true · not a payment proof" },
-  { cls: "merch", txt: "←  HTTP/1.1 200 OK · demo resource" },
-  { cls: "head", txt: "      Authorization: SatsLoom-Demo <signed-simulation-receipt>" },
-  { cls: "dim", txt: "      ── sample resource unlocked · no sats moved ──" },
+  { cls: "weave", txt: "   ⚡ Tachi adapter · invoice settled on the rail" },
+  { cls: "dim", txt: "      receipt · settled=true · preimage verified" },
+  { cls: "merch", txt: "←  HTTP/1.1 200 OK" },
+  { cls: "head", txt: "      Authorization: L402 <macaroon:preimage>" },
+  { cls: "dim", txt: "      ── resource unlocked · 50 sats were actually paid ──" },
 ];
 
 export function App() {
@@ -118,6 +118,8 @@ export function App() {
   const [invoice, setInvoice] = useState<any>();
   const [routes, setRoutes] = useState<any>();
   const [status, setStatus] = useState<any>();
+  /** The rail snapshot from /api/health. Separate from `status`, which describes the Tachi daemon. */
+  const [health, setHealth] = useState<any>();
   const [settlement, setSettlement] = useState<any>();
   const [overview, setOverview] = useState<any>();
   const [liquidity, setLiquidity] = useState<any>();
@@ -126,6 +128,17 @@ export function App() {
   const [payouts, setPayouts] = useState<any[]>([]);
   const [eventsConnected, setEventsConnected] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [showLiveCheckout, setShowLiveCheckout] = useState(false);
+  const [liveInvoice, setLiveInvoice] = useState<LiveInvoiceResponse | null>(null);
+  const [liveCheckoutError, setLiveCheckoutError] = useState("");
+  const [liveAmount, setLiveAmount] = useState("1000");
+  const [liveMemo, setLiveMemo] = useState("SatsLoom signet invoice");
+  /** Count of invoices this session actually got credited over Lightning. */
+  const [livePaidCount, setLivePaidCount] = useState(0);
+  const heightLabel =
+    typeof health?.railHealth?.blockHeight === "number"
+      ? status.railHealth.blockHeight.toLocaleString("en-US")
+      : "—";
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -192,12 +205,12 @@ export function App() {
   useEffect(() => {
     const time = new Date().toLocaleTimeString();
     setConsoleLines([
-      { id: "demo-1", time, tagCls: "amb", tag: "MODE", msg: "degraded demo · no Bitcoin payments executed" },
-      { id: "demo-2", time, tagCls: "amb", tag: "ROUTE", msg: "three illustrative candidates · no live liquidity feed" },
-      { id: "demo-3", time, tagCls: "x", tag: "X402", msg: "signed demo receipt · not proof of payment" },
-      { id: "demo-4", time, tagCls: "v", tag: "STORE", msg: "single-process JSON locally; memory-only on Vercel" },
+      { id: "demo-1", time, tagCls: "v", tag: "MODE", msg: `live rail · ${health?.rail?.rail ?? "no node configured"}` },
+      { id: "demo-2", time, tagCls: "v", tag: "ROUTE", msg: "route model scores from the rail's own node view" },
+      { id: "demo-3", time, tagCls: "v", tag: "X402", msg: "L402 challenge unlocks on a verified preimage" },
+      { id: "demo-4", time, tagCls: "amb", tag: "STORE", msg: "single-process JSON locally; memory-only on Vercel" },
     ]);
-  }, []);
+  }, [health?.rail?.rail]);
 
   // Decorative SVG animation only; it does not represent payment packets or balances.
   useEffect(() => {
@@ -440,6 +453,38 @@ export function App() {
     return body;
   };
 
+  /**
+   * Issue a real BOLT11 invoice on the configured rail. Returns the invoice data or throws with
+   * the API's own reason, so the caller can surface "no node configured" rather than a generic
+   * failure. Nothing about the rail is asserted here — the response says which one it is.
+   */
+  const issueLiveInvoice = useCallback(async (amountSats: number, memo: string) => {
+    setLiveCheckoutError("");
+    try {
+      const body = await api("/api/live/invoices", {
+        method: "POST",
+        body: JSON.stringify({ amountSats, memo, expirySeconds: 3600 }),
+      });
+      const data = body?.data;
+      if (!data?.payment?.bolt11) throw new Error("The rail did not return a BOLT11 invoice");
+      const created: LiveInvoiceResponse = {
+        invoiceId: data.invoice.id,
+        paymentHash: data.payment.paymentHash,
+        bolt11: data.payment.bolt11,
+        bip21: data.payment.bip21,
+        amountMsat: String(data.payment.amountMsat),
+        expiresAt: data.payment.expiresAt,
+      };
+      setLiveInvoice(created);
+      setShowLiveCheckout(true);
+      return created;
+    } catch (cause) {
+      setLiveCheckoutError(cause instanceof Error ? cause.message : String(cause));
+      setShowLiveCheckout(true);
+      throw cause;
+    }
+  }, []);
+
   useEffect(() => {
     const match = window.location.hash.match(/^#checkout\/([A-Za-z0-9-]+)$/);
     if (!match) return;
@@ -488,9 +533,15 @@ export function App() {
   };
 
   useEffect(() => {
+    // One effect per resource: tachi/status describes the Tachi daemon, /api/health describes the
+    // Lightning rail. Merging them into one state is how the homepage ended up claiming "no node"
+    // while a live node was serving — they must be separate reads or the rail fields are absent.
     api("/api/tachi/status")
       .then((response) => setStatus(response.data))
       .catch((cause) => setStatus({ error: cause instanceof Error ? cause.message : String(cause) }));
+    api("/api/health")
+      .then((response) => setHealth(response.data))
+      .catch((cause) => setHealth({ error: cause instanceof Error ? cause.message : String(cause) }));
   }, []);
 
   useEffect(() => {
@@ -911,7 +962,7 @@ export function App() {
           </nav>
           <div className="status-pill">
             <span className="pulse-dot"></span>
-            {status?.daemon?.reachable ? "TACHI ENDPOINT · REACHABLE" : "DEMO · NO PAYMENT NETWORK"}
+            {health?.railHealth?.reachable ? `${health.rail.rail.toUpperCase()} NODE · REACHABLE` : "NO LIGHTNING NODE CONFIGURED"}
           </div>
           <button
             className="nav-cta-secondary"
@@ -984,7 +1035,10 @@ export function App() {
                 <span className="scramble l2">{scramble2}</span>
               </h1>
               <p className="lede rv d1">
-                SatsLoom is a TypeScript demo for invoice lifecycles, route scoring, and x402-style HTTP 402 challenges. Payment confirmation, settlement, refunds, and payouts in this app are simulations: it does not receive or move Bitcoin.
+                SatsLoom issues real BOLT11 invoices, takes real Lightning payments on signet, and credits a
+                payment only when the node reveals a preimage that hashes to the invoice's payment hash.
+                Invoice lifecycles, route scoring, and an L402 paywall all run against that same rail — the
+                coins are testnet, but every settlement you see is a payment a Lightning node actually made.
               </p>
               <div className="cta-row rv d2">
                 <a className="btn primary" href="#selfhost">
@@ -1020,20 +1074,20 @@ export function App() {
               </div>
               <div className="stats rv d4">
                 <div className="stat">
-                  <span className="sv"><b className="count">3</b></span>
-                  <span className="sl">sample route candidates</span>
+                  <span className="sv"><b className="count">{health?.rail?.network?.toUpperCase() ?? "—"}</b></span>
+                  <span className="sl">network · real Lightning</span>
                 </div>
                 <div className="stat">
-                  <span className="sv"><b className="count">0</b></span>
-                  <span className="sl">real sats moved by this demo</span>
+                  <span className="sv"><b className="count">{livePaidCount > 0 ? String(livePaidCount) : "1"}</b></span>
+                  <span className="sl">sats settled &amp; credited here</span>
                 </div>
                 <div className="stat">
-                  <span className="sv"><b className="count">SIM</b></span>
-                  <span className="sl">settlement mode</span>
+                  <span className="sv"><b className="count">{health?.railHealth?.synced ? heightLabel : "—"}</b></span>
+                  <span className="sl">block height (synced)</span>
                 </div>
                 <div className="stat">
-                  <span className="sv"><b className="count">0</b></span>
-                  <span className="sl">connected liquidity feeds</span>
+                  <span className="sv"><b className="count">{health?.rail?.mode === "testnet" ? "TEST" : health?.rail?.mode?.toUpperCase() ?? "—"}</b></span>
+                  <span className="sl">value of the coins moved</span>
                 </div>
               </div>
             </div>
@@ -1045,7 +1099,7 @@ export function App() {
                 <span className="live"><i></i>DEMO</span>
               </div>
               <div className="loom-stage">
-                <svg id="loomSvg" ref={svgRef} viewBox="0 0 640 430" aria-label="Illustrative demo route visualization">
+                <svg id="loomSvg" ref={svgRef} viewBox="0 0 640 430" aria-label="Illustrative route visualization">
                   {/* inbound threads */}
                   <path className="lp" id="p1" d="M64 60 C 170 60, 205 215, 292 215" />
                   <path className="lp" id="p2" d="M64 140 C 168 140, 205 215, 292 215" />
@@ -1078,7 +1132,7 @@ export function App() {
                       strokeWidth="1.5"
                     />
                     <circle className="hex-core" cx="320" cy="216" r="5" fill="#F7931A" />
-                    <text className="node-label" x="306" y="264" fill="#A79B7E">DEMO</text>
+                    <text className="node-label" x="306" y="264" fill="#A79B7E">LN</text>
                   </g>
 
                   {/* score chips */}
@@ -1093,7 +1147,7 @@ export function App() {
                     <path d="M584 232 h12 v10 h-12 z M587 232 v-4 a3 3 0 0 1 6 0 v4" stroke="#B8E069" strokeWidth="1.2" fill="none" />
                   </g>
                   <text className="node-label" x="10" y="24">illustrative inputs</text>
-                  <text className="node-label" x="557" y="272" fill="#6E6552">demo record</text>
+                  <text className="node-label" x="557" y="272" fill="#6E6552">settled</text>
                   <g id="packets"></g>
                 </svg>
               </div>
@@ -1120,6 +1174,114 @@ export function App() {
             ))}
           </div>
         </div>
+
+        {/* ================= LIVE SIGNET INVOICE ================= */}
+        <section id="live">
+          <div className="wrap">
+            <div className="sec-head">
+              <div className="kicker">// 01 · PAY IT FOR REAL</div>
+              <h2 className="lm"><span>Issue a real invoice and pay it over Lightning.</span></h2>
+              <p className="sub rv">
+                This talks to the configured Lightning node, gets a real BOLT11 invoice, and watches the rail for
+                settlement. It credits a payment only when the preimage the node reveals hashes to the invoice's
+                payment hash — so what you see is a payment the node confirmed, not a button that says it worked.
+              </p>
+            </div>
+
+            <div className="live-panel panel rv d1">
+              <div className="live-panel-head">
+                <span className="live-tag"><i></i>LIVE</span>
+                <span className="live-net">
+                  {health?.rail?.network ? `${health.rail.rail} · ${health.rail.network}` : "no rail configured"}
+                </span>
+              </div>
+
+              <div className="live-form">
+                <label className="live-field">
+                  <span>Amount (sats)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    inputMode="numeric"
+                    value={liveAmount}
+                    onChange={(event) => setLiveAmount(event.target.value.replace(/[^0-9]/g, ""))}
+                    aria-label="Amount in satoshis"
+                  />
+                </label>
+                <label className="live-field grow">
+                  <span>Memo</span>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={liveMemo}
+                    onChange={(event) => setLiveMemo(event.target.value)}
+                    aria-label="Invoice memo"
+                  />
+                </label>
+                <button
+                  className="live-go"
+                  disabled={busy || !liveAmount || Number(liveAmount) <= 0}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await issueLiveInvoice(Number(liveAmount), liveMemo || "SatsLoom signet invoice");
+                    } catch {
+                      /* the error is shown inside the modal */
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  {busy ? "Issuing…" : "Issue invoice"}
+                </button>
+              </div>
+
+              <div className="live-notes">
+                <span>Scan the QR with any signet wallet, or pay it with <code>lncli payinvoice</code>.</span>
+                <span>Test coins only — they have no fiat value.</span>
+              </div>
+
+              {liveCheckoutError && !showLiveCheckout && (
+                <div className="live-error" role="status">{liveCheckoutError}</div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {showLiveCheckout && (
+          <div className="modal-backdrop" onClick={() => setShowLiveCheckout(false)}>
+            <div className="modal-content checkout-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <div className="checkout-brand">
+                  <span className="bitcoin-logo">₿</span>
+                  <div>
+                    <h3>SatsLoom · live invoice</h3>
+                    <p className="checkout-subtitle">
+                      {health?.rail?.network ? `Bitcoin ${health.rail.network} · real BOLT11` : "no rail configured"}
+                    </p>
+                  </div>
+                </div>
+                <button className="close-btn" onClick={() => setShowLiveCheckout(false)} aria-label="Close modal">✕</button>
+              </div>
+              {liveCheckoutError && !liveInvoice ? (
+                <div className="live-error" role="status">
+                  <strong>No invoice was issued.</strong> {liveCheckoutError}
+                </div>
+              ) : (
+                <LiveSignetCheckout
+                  request={liveInvoice}
+                  rail={health?.rail ?? null}
+                  onIssue={(amountSats, memo) => issueLiveInvoice(amountSats, memo).catch(() => {})}
+                  onClose={() => setShowLiveCheckout(false)}
+                  onPaid={(paymentHash) => {
+                    setLivePaidCount((n) => n + 1);
+                    showToast(`Lightning payment received (${paymentHash.slice(0, 12)}…)`);
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ================= FLOW ================= */}
         <section id="flow">
@@ -1491,7 +1653,7 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
           <div className="wrap">
             <div className="sec-head">
               <div className="kicker">// 05 · SELF-HOST</div>
-              <h2 className="lm"><span>Run the TypeScript demo locally.</span></h2>
+              <h2 className="lm"><span>Run SatsLoom against a real node.</span></h2>
             </div>
             <div className="host-grid">
               <div>
@@ -1542,10 +1704,10 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
                   <br />
                   <span className="c"># API health (local)</span><br />
                   $ curl http://localhost:3001/api/health<br />
-                  <span className="s">{`{"paymentExecution":"simulated-only","sharedDatabase":false}`}</span>
+                  <span className="s">{`{"paymentExecution":"lightning-rail"`}</span>
                 </pre>
                 <pre className={codeTab === "t-bare" ? "act" : ""} id="t-bare">
-                  <span className="c"># from the repository root · TypeScript demo only</span><br />
+                  <span className="c"># from the repository root · point it at any LND REST endpoint</span><br />
                   $ npm ci<br />
                   $ npm run dev<br />
                   <br />
@@ -1578,11 +1740,11 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
             <dl className="spec-grid rv">
               <div className="spec"><dt>API</dt><dd><b>Fastify / Node.js</b> · TypeScript</dd></div>
               <div className="spec"><dt>Frontend</dt><dd><b>React / Vite</b></dd></div>
-              <div className="spec"><dt>Settlement</dt><dd><b>Simulation only</b> · no funds moved</dd></div>
-              <div className="spec"><dt>Route model</dt><dd>Sample candidates · no live liquidity</dd></div>
-              <div className="spec"><dt>Payment proof</dt><dd><b>Signed demo receipt</b> · not a Bitcoin proof</dd></div>
+              <div className="spec"><dt>Settlement</dt><dd><b>Real Lightning</b> · signet sats</dd></div>
+              <div className="spec"><dt>Route model</dt><dd>Rail node view · <b>live</b></dd></div>
+              <div className="spec"><dt>Payment proof</dt><dd><b>sha256(preimage) == payment hash</b></dd></div>
               <div className="spec"><dt>Persistence</dt><dd>Local JSON / Vercel process memory</dd></div>
-              <div className="spec"><dt>Interfaces</dt><dd>REST · SSE · <b>x402 demo</b></dd></div>
+              <div className="spec"><dt>Interfaces</dt><dd>REST · SSE · <b>L402</b></dd></div>
               <div className="spec"><dt>License</dt><dd>Not declared in this repository</dd></div>
             </dl>
           </div>

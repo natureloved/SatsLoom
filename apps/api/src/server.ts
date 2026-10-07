@@ -76,6 +76,11 @@ const paymentRequests = new Map<string, PaymentRequest>();
  * the bug this type exists to prevent.
  */
 const correspondence = new PaymentCorrespondence();
+/**
+ * Macaroon -> invoice id for live x402 challenges. Written only when a real payment is
+ * credited, so an entry here is evidence that value actually moved.
+ */
+const liveMacaroons = new Map<string, string>();
 const watcher = new InvoiceWatcher({
   rail: activeRail,
   onChange: (observation: PaymentObservation) => onRailObservation(observation),
@@ -197,6 +202,12 @@ async function onRailObservation(observation: PaymentObservation) {
     simulation: false,
   };
   payouts.set(invoiceId, { ...received, id: crypto.randomUUID(), amountSats: verdict.amountMsat / 1000n, status: "credited", createdAt: new Date(verdict.settledAt * 1000).toISOString(), verification: "preimage-sha256" });
+  // A live x402 challenge is settled: bind a macaroon to it so a retry carrying the preimage can
+  // unlock the resource. The macaroon is only issued after credit, so possession of it implies a
+  // payment this node actually verified.
+  if (aggregates.get(invoiceId)?.purpose === "x402-live") {
+    liveMacaroons.set(`m_${invoiceId.slice(0, 8)}_${paymentHash.slice(0, 12)}`, invoiceId);
+  }
   publishInvoiceEvent(invoiceId, "payment.received", received);
   persist();
   app.log?.info?.(received, "real lightning payment credited");
@@ -873,10 +884,102 @@ app.get("/api/transactions/:txid", async (request: any, reply) => {
 });
 
 app.get("/api/x402/resource", async (request: any, reply) => {
+  const authorization = typeof request.headers.authorization === "string" ? request.headers.authorization : "";
+
+  // L402-style live path: a real invoice was issued and the rail has credited it. The caller
+  // presents the macaroon plus the preimage the node revealed; we verify the preimage hashes to
+  // the invoice's payment hash rather than trusting the caller's claim.
+  if (authorization.startsWith("L402 ")) {
+    const parts = authorization.slice(5).trim().split(":");
+    const macaroon = parts[0] ?? "";
+    const preimage = parts[1] ?? "";
+    const liveInvoiceId = liveMacaroons.get(macaroon);
+    const paymentHash = liveInvoiceId ? correspondence.paymentHashFor(liveInvoiceId) : undefined;
+    const payout = liveInvoiceId ? payouts.get(liveInvoiceId) : undefined;
+    const matches = Boolean(
+      preimage && paymentHash &&
+        createHash("sha256").update(Buffer.from(preimage.toLowerCase(), "hex")).digest("hex") === paymentHash,
+    );
+    if (liveInvoiceId && payout && matches) {
+      return envelope(request.id, {
+        unlocked: true,
+        protocol: "L402",
+        invoiceId: liveInvoiceId,
+        service: "SatsLoom live resource",
+        data: { message: "Live content released against a verified Lightning preimage." },
+      }, { simulation: false, proof: "preimage-sha256" });
+    }
+  }
+
+  // A reachable Lightning node is configured: hand the agent a real BOLT11 invoice it can pay,
+  // exactly like the /api/live/invoices rail.
+  if (!railUnavailable()) {
+    const amountSats = 50n;
+    const expirySeconds = 900;
+    const now = new Date();
+    const invoiceId = crypto.randomUUID();
+    const memo = "SatsLoom x402 challenge (50 sats)";
+    const invoice: Invoice = {
+      id: invoiceId,
+      amountSats,
+      memo,
+      status: "pending",
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + expirySeconds * 1000).toISOString(),
+    };
+    let paymentRequest;
+    try {
+      paymentRequest = await activeRail.createRequest({
+        amountMsat: amountSats * 1000n,
+        description: memo,
+        expirySeconds,
+        onchainFallbackAddress: undefined,
+      });
+    } catch (error) {
+      return reply.code(503).send(envelope(request.id, null, {
+        error: `The lightning rail could not issue an x402 invoice: ${(error as Error).message}`,
+        simulation: false,
+      }));
+    }
+    const aggregate = markQuoted(createInvoiceAggregate(invoice));
+    aggregate.purpose = "x402-live";
+    aggregates.set(invoice.id, aggregate);
+    paymentRequests.set(paymentRequest.paymentHash, paymentRequest);
+    correspondence.link(paymentRequest.paymentHash, invoice.id);
+    watcher.watch({ railRequestId: paymentRequest.paymentHash, expiresAt: paymentRequest.expiresAt, invoiceId: invoice.id });
+    persist();
+    reply.header("x-satsloom-payment-hash", paymentRequest.paymentHash);
+    return reply
+      .code(402)
+      .header(
+        "www-authenticate",
+        `L402 macaroon="pay-to-obtain", invoice="${paymentRequest.invoice}", price="50", currency="SAT"`,
+      )
+      .header("x-402-invoice-id", invoice.id)
+      .header("x-402-price-sats", "50")
+      .header("x-402-payment-url", `/#live?invoice=${invoice.id}`)
+      .send(envelope(request.id, {
+        error: "Payment Required",
+        status: 402,
+        invoiceId,
+        amountSats: "50",
+        amountMsat: paymentRequest.amountMsat,
+        memo,
+        payment: {
+          rail: paymentRequest.rail,
+          network: paymentRequest.network,
+          bolt11: paymentRequest.invoice,
+          bip21: `bitcoin:?${new URLSearchParams({ lightning: paymentRequest.invoice }).toString()}`,
+          paymentHash: paymentRequest.paymentHash,
+        },
+        message:
+          "Pay this BOLT11 invoice over Lightning, then retry with Authorization: L402 <macaroon>:<preimage>. The resource unlocks only when the preimage hashes to this invoice's payment hash.",
+      }, { simulation: false }));
+  }
+
   if (!demoMode || !proofSecret) {
     return reply.code(503).send(envelope(request.id, null, { error: "Live x402 payment verification is not configured; the signed-receipt demo is unavailable" }));
   }
-  const authorization = typeof request.headers.authorization === "string" ? request.headers.authorization : "";
   const receipt = verifyDemoReceipt(authorization);
   if (receipt) {
     const aggregate = aggregates.get(receipt.invoiceId);
