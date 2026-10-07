@@ -61,7 +61,7 @@ export function SatsShop({ onBuyProduct }: Props) {
         <div>
           <h2>SatsShop • Merchant E-Commerce Showcase</h2>
           <p className="shop-subtitle">
-            Sample catalog for the <code>@satsloom/ecommerce</code> client. Checkout is simulated; no product is paid for or fulfilled.
+            Sample catalog for the <code>@satsloom/ecommerce</code> client. Checkout here is simulated — the <a href="#live">live invoice panel</a> takes a real Lightning payment.
           </p>
         </div>
         <div className="integration-badge">

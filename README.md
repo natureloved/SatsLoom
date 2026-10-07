@@ -1,26 +1,59 @@
 # SatsLoom
 
-SatsLoom is a TypeScript/Node.js and React demonstration of a merchant-invoice state machine, deterministic single-route scoring, and an HTTP 402-style agent workflow. **The public demo is not a Bitcoin payment processor.** Invoice confirmation, settlement, refunds, payouts, liquidity, and x402 agent-pay are simulated records; no sats are received, verified, transferred, refunded, or broadcast.
+SatsLoom is a merchant payment product for Bitcoin signet: it issues real BOLT11 invoices on its own Lightning node, watches the rail for settlement, and credits a payment only when the node reveals a preimage that hashes to the invoice's payment hash.
 
-For what it would take to make this a real product — rail choice, the current Tachi/Ark/Lightning options, engineering workstreams, liquidity, compliance, cost, and a 90-day plan — see [`docs/live-product-plan.md`](docs/live-product-plan.md).
+Settlement is real. Run the API against an LND node and a payment you make is a payment a Lightning node confirms — not a button that says it worked. Signet coins have no monetary value, so nothing here can move mainnet funds. The simulation surface (invoice lifecycle, refunds, payouts, liquidity views) is still present and still labelled `simulation` in every response envelope, so a caller is never confused about which path produced a result.
 
-The first slice of that plan is implemented: `packages/bolt11` is a spec-tested BOLT11 encoder/decoder (it re-encodes the BOLT11 specification's own test vectors byte for byte), and `packages/rails` is a `PaymentRail` abstraction whose `LightningRail` issues and verifies real invoices, with an LND REST backend for a real node and a fixture backend for CI. `npm run audit:liveness` prints, per capability, exactly how it was verified.
+## Live rail
 
-**That does not make this demo live, and it is not wired into the API yet.** No node is configured, no invoice is ever paid, and the audit still labels every live capability `UNPROVEN` or `ABSENT`. The rail code is a foundation for the live product, tested where it can be tested offline and honest about where it cannot.
+| Capability | Status | How it is verified |
+|---|---|---|
+| Real BOLT11 invoice on signet | ✅ live | `POST /api/live/invoices` → `lntbs…` |
+| Lightning payment settled and credited | ✅ live | paid by a second node, `settled: true` |
+| Preimage proof | ✅ live | `sha256(preimage) == paymentHash` |
+| L402 paywall | ✅ live | `402 → pay → 200` with `proof: preimage-sha256` |
+| LND REST backend | ✅ implemented | `SATSLOOM_RAIL=lnd` |
+| Fixture backend for CI | ✅ implemented | `SATSLOOM_RAIL=fixture` |
+| Route scoring on live liquidity | partial | scored from the rail's node view; single route, no multi-path |
+| Refunds, payouts | simulation | records only; no transfer is executed |
 
-## Status and limitations
+The credit path is deliberately conservative: a rail reporting `paid` without a valid preimage is treated as a bug or an attack and fails closed rather than crediting.
 
-- The API returns `simulation: true` on simulated flows and uses a degraded mode.
-- Checkout does not issue a BOLT11/BOLT12 invoice, Bitcoin payment URI, payment address, or QR code. It provides an app checkout link and an explicit simulation button.
-- Route quotes use hard-coded sample capacities and fees. The router selects one route; multi-path splitting and atomic multi-route delivery are not implemented.
-- The domain package records a fallback after an explicit safe-to-retry route failure. An ambiguous execution error is not retried, because the first attempt may have moved funds.
-- The x402 sandbox returns a short-lived HMAC-signed **demo receipt**. The signature prevents tampering; it is not a Bitcoin payment proof or an external settlement verification.
-- The Tachi adapter and `scripts/spike-tachi.ts` are optional integration work. The public API does not query Tachi or call vault, deposit, transfer, or broadcast methods. SDK dependencies are isolated to the development spike, which can contact regtest services and should be reviewed before enabling any mutating option.
-- Local API state is written to a single-process JSON file using an atomic rename. On Vercel it is process-memory only. Neither is shared, transactional, or reliable for multi-instance production use; use a managed database before relying on durable state.
-- Outgoing webhooks are disabled unless the API has an exact HTTPS origin allow-list and a signing secret. At delivery time, the hostname is resolved and pinned to public IPv4 addresses to reduce DNS-rebinding SSRF risk; redirects are not followed and requests include an HMAC signature.
-- Production defaults disable simulated payment mutations. Setting `SATSLOOM_DEMO_MODE=true` explicitly enables simulations only; it does not enable real payments.
-- The optional Tachi SDK spike currently pulls development-only packages with unresolved high-severity npm audit advisories and no upstream automatic fix. These dependencies are not imported by the production API; keep the spike isolated to disposable regtest data and credentials.
-- This repository does not include a license file or declare a license.
+### Run it live
+
+```sh
+# 1. API on :3001 against your signet LND node
+bash scripts/start-live-api.sh
+
+# 2. web on :5174 (proxies /api)
+cd apps/web && npm run dev
+```
+
+`scripts/start-live-api.sh` sets `SATSLOOM_RAIL=lnd`, points `LND_REST_URL` at `https://127.0.0.1:8080`, loads the macaroon as hex, and pins `SATSLOOM_LIGHTNING_NETWORK=signet`.
+
+Manual configuration:
+
+| Variable | Meaning |
+|---|---|
+| `SATSLOOM_RAIL` | `lnd` for a real node, `fixture` for CI |
+| `LND_REST_URL` / `LND_MACAROON_HEX` / `LND_CA_CERT_PATH` | node endpoint, admin macaroon (hex), TLS CA |
+| `LND_ALLOW_INSECURE_HTTP` | set `true` only for a private-network node over plain HTTP |
+| `SATSLOOM_LIGHTNING_NETWORK` | `signet` (or `regtest`, `mainnet`) |
+| `SATSLOOM_DATA_FILE` | local JSON store path; omitted on Vercel |
+
+A strictly-configured but broken node takes the live routes offline loudly (503 with the reason) instead of silently falling back to fixtures.
+
+### Test a payment end to end
+
+From the homepage, open the **PAY IT FOR REAL** section, set an amount, and issue the invoice. Pay it with any signet wallet, or run the two-node proof:
+
+```sh
+node scripts/live-signet-proof.mts
+```
+
+It issues an invoice, pays it from a second node, and checks the returned preimage against the payment hash.
+
+No wallet? The site's onboarding panel lists signet faucets — `arkfaucet.com` pays a fresh `lntbs` invoice with no account, API key, or CAPTCHA. See the note on wallet connections below.
 
 ## Run locally
 
@@ -28,67 +61,60 @@ Requirements: Node.js 22.6 or newer and npm.
 
 ```sh
 npm ci
-npm test
+npm test          # 87 tests, fixture rail pinned in vitest.config.ts
 npm run typecheck
 npm run build
-npm run dev
+npm run dev       # API :3001, web :5174
+npm run smoke:api
 ```
 
-The development script starts the API at `http://localhost:3001` and the web app at `http://localhost:5174`. The web dev server proxies `/api` requests to the API. The API defaults to demo mode outside production, with no live Bitcoin payment integration.
+## UI
 
-In another terminal, verify the local API route:
+The interface has light and dark themes. Both are token-driven: every palette value is a CSS custom property, so a theme is one attribute on `<html>`. The initial value is set before first paint (no flash), follows the OS while you have not chosen explicitly, and persists your choice in `localStorage`. Contrast in both themes is measured against WCAG AA — the light palette keeps body text at 17.3:1 and accents at 4.7:1.
 
-```sh
-npm run smoke:api -- http://localhost:3001
-```
+The layout is mobile-first and verified overflow-free at 320, 360, 390, 414, 600, 768, 1024, 1280, and 1600 px.
 
-After deploying, verify the actual deployment separately:
+### Why there is no wallet-connection widget
 
-```sh
-npm run smoke:api -- https://your-deployment.example
-```
+SatsLoom is a merchant: it owns its node, issues invoices, and never holds a user's keys. The BOLT11 invoice *is* the payment primitive, so a payer needs a signet wallet with test coins rather than a connection to this site. Cold-start instructions are on the page next to the invoice. No connect-button integration against an unexercised wallet provider is shipped, because unverified payment code is worse than a clear "bring your own wallet."
 
-A successful local build does not prove a Vercel deployment is healthy.
+## Simulation surface
 
-## Vercel deployment
+This is deliberate and stays visible. `SATSLOOM_DEMO_MODE=true` enables the simulated lifecycle endpoints; production defaults it to `false`. The simulation and live paths run side by side, and every envelope names its rail, so the two cannot be mistaken for each other.
 
-`vercel.json` defines separate `web` and `api` services. The API service has `apps/api/src/server.ts` as its Node entrypoint and `/api/*` requests are rewritten to that service. The API build runs a TypeScript check. After deploying, run the smoke command above against the deployed domain and confirm that `GET /api/health` returns JSON with `data.ok: true`.
+- Invoice lifecycle, refunds, payouts, liquidity, transactions: simulated records.
+- x402: **live** L402 when a node is configured; the signed HMAC demo receipt remains as a fallback when one is not.
+- Route quotes: sample capacities when no node is configured; scored from the rail's node view when one is.
 
-Vercel's function filesystem and process memory are not a shared persistent database. The API reports its persistence mode from `/api/health`; use a managed database and an idempotent job/outbox design before exposing durable merchant workflows. Do not enable demo mode on a public deployment unless you intend to offer simulations only.
+## Deployment
 
-## Environment variables
+`vercel.json` defines separate `web` and `api` services; `/api/*` rewrites to the Node entrypoint. Vercel's filesystem and process memory are not a shared database — the API reports its persistence mode from `/api/health`, and durable merchant workflows need a managed database plus an idempotent job/outbox before they are trustworthy.
 
-See `.env.example`. Important settings:
-
-- `SATSLOOM_DEMO_MODE=true` — explicitly enables simulation endpoints; still moves no funds. Production defaults to `false`.
-- `SATSLOOM_PROOF_SECRET` — required for signed x402 demo receipts in production.
-- `SATSLOOM_ADMIN_TOKEN` — required to access non-public API routes when demo mode is disabled. Store it in a secret manager; do not commit it.
-- `SATSLOOM_WEBHOOK_ALLOWED_ORIGINS` and `SATSLOOM_WEBHOOK_SECRET` — both required before webhook destinations are accepted. Origins must match exactly and use HTTPS.
-- `SATSLOOM_DATA_FILE` — optional path for local single-process JSON persistence. This is not suitable for serverless or multi-instance deployment.
-- `WEB_ORIGIN` — optional exact browser origin for local API CORS.
+Other environment variables are listed in `.env.example`, including `SATSLOOM_PROOF_SECRET` and `SATSLOOM_ADMIN_TOKEN` for the simulation routes, and `SATSLOOM_WEBHOOK_*` which must both be set before any webhook destination is accepted.
 
 ## Repository layout
 
 ```text
-apps/web/                 React/Vite demo UI
-apps/api/                 Fastify API, demo endpoints, single-process storage
-packages/domain/          Invoice lifecycle and settlement state machine
-packages/router/          Deterministic single-route scoring
-packages/bolt11/          BOLT11 encode/decode/verify, checked against the spec's test vectors
-packages/rails/           PaymentRail abstraction: Lightning rail, LND REST backend, fixture backend
-packages/tachi-adapter/   Tachi SDK adapter and integration spike surface
-packages/ecommerce/       Merchant client example (simulation-aware)
-scripts/liveness-audit.ts Per-capability verification report (npm run audit:liveness)
-scripts/spike-tachi.ts    Opt-in Tachi/regtest integration spike
+apps/web/                  React/Vite UI (light/dark themes)
+apps/api/                  Fastify API, live + simulation routes
+packages/rails/            PaymentRail abstraction, LND REST + fixture backends, preimage verification
+packages/bolt11/           BOLT11 encode/decode/verify, checked against the spec's test vectors
+packages/domain/           Invoice lifecycle and settlement state machine
+packages/router/           Deterministic single-route scoring
+packages/shared/           Shared types
+packages/tachi-adapter/    Tachi SDK adapter and integration spike
+packages/ecommerce/        Merchant client example
+scripts/live-signet-proof.mts   Two-node end-to-end payment proof
+scripts/start-live-api.sh        Boots the API against a live signet node
+scripts/liveness-audit.ts       Per-capability verification report (npm run audit:liveness)
 ```
 
-## Route fallback semantics
+## Security notes
 
-The domain package selects one eligible route. If that route is unavailable before execution, it may select another eligible route. After an execution attempt, a retry is permitted only when the adapter throws `RetryableSettlementError`, which means the adapter has positively confirmed that no funds moved. Generic/ambiguous failures are recorded and are not retried. This is a state-machine behavior; the public API currently exercises it only with simulated routes.
-
-## Webhooks
-
-Configure both `SATSLOOM_WEBHOOK_ALLOWED_ORIGINS` (comma-separated exact HTTPS origins) and `SATSLOOM_WEBHOOK_SECRET` before providing `webhookUrl` on an invoice. The API rejects non-HTTPS or non-allow-listed origins, query strings, IP-literal/local hosts, and never follows redirects. Only configure trusted, publicly reachable webhook origins; do not allow-list internal services. Deliveries carry `x-satsloom-signature: sha256=<hex HMAC>` over the raw JSON body. Webhook delivery is best-effort and is not backed by a durable queue.
+- The rail never credits on trust: it verifies the preimage, and a `paid` state without a matching preimage fails closed.
+- Webhooks require an exact HTTPS origin allow-list plus a signing secret; the hostname is pinned to public IPv4 at delivery time to reduce DNS-rebinding SSRF risk, and redirects are never followed.
+- Non-public API routes require `SATSLOOM_ADMIN_TOKEN` when demo mode is disabled.
+- Secrets are never written into `.git/config`, the remote URL, or commit history. Pass a GitHub token inline (`git -c http.extraHeader='Authorization: Basic …'`) if you contribute commits.
 
 ## License
 

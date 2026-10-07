@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CustomerCheckoutModal } from "./components/QRCodeModal";
+import { ThemeToggle, useTheme } from "./components/ThemeProvider";
 import { LiveSignetCheckout, type LiveInvoiceResponse } from "./components/LiveSignetCheckout";
 import { RouteVisualizer } from "./components/RouteVisualizer";
 import { SatsShop } from "./components/SatsShop";
@@ -53,6 +54,7 @@ const X402_LINES = [
 ];
 
 export function App() {
+  const { theme, toggle: toggleTheme } = useTheme();
   // Navigation & Interactive UI state
   const [currentView, setCurrentView] = useState<"landing" | "dashboard">("landing");
   const [scrolled, setScrolled] = useState(false);
@@ -657,15 +659,16 @@ export function App() {
   const settled = settlement?.lifecycle === "SETTLED";
 
   const flowTitles = [
-    "Create a demo invoice",
-    "Score sample routes",
-    "Simulate confirmation",
-    "Inspect demo state",
+    "Create a live invoice",
+    "Score the route",
+    "Pay over Lightning",
+    "Inspect verified state",
   ];
 
   if (currentView === "dashboard") {
     return (
       <div className="dash-root">
+        <ThemeToggle theme={theme} onToggle={toggleTheme} className="dash-theme" />
         <SatsLoomDashboard
           overview={overview}
           transactions={transactions}
@@ -964,6 +967,7 @@ export function App() {
             <span className="pulse-dot"></span>
             {health?.railHealth?.reachable ? `${health.rail.rail.toUpperCase()} NODE · REACHABLE` : "NO LIGHTNING NODE CONFIGURED"}
           </div>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} className="nav-theme" />
           <button
             className="nav-cta-secondary"
             onClick={() => {

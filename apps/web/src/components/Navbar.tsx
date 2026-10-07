@@ -24,9 +24,9 @@ export function Navbar({ activeTab, setActiveTab, status }: Props) {
           <div>
             <div className="brand-title-wrap">
               <h1>SatsLoom</h1>
-              <span className="brand-tag">Demo</span>
+              <span className="brand-tag">Signet</span>
             </div>
-            <p className="brand-subtitle">Invoice &amp; Route Simulation · x402 Demo</p>
+            <p className="brand-subtitle">Live Invoices &amp; Settlements · L402</p>
           </div>
         </div>
 
@@ -35,8 +35,11 @@ export function Navbar({ activeTab, setActiveTab, status }: Props) {
             <span className="pulse-indicator"></span>
             <span>Tachi endpoint: {daemonLabel}</span>
           </div>
-          <div className="degraded-badge" title="Invoice confirmation and settlement in this demo are simulations; no Bitcoin payments are sent or verified.">
-            <span>Payments Simulated · No Funds Moved</span>
+          <div
+            className="degraded-badge"
+            title="Settlement runs on the configured Lightning node. The lifecycle, refund, payout, and liquidity views in this console are simulation records and transfer nothing."
+          >
+            <span>Live Settlement · Records Simulated</span>
           </div>
         </div>
       </div>
