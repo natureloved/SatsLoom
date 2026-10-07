@@ -20,7 +20,17 @@ export function TachiTelemetryView() {
     let cancelled = false;
     fetch("/api/tachi/telemetry")
       .then(async (response) => {
-        const body = await response.json();
+        // Read the body as text first: a 404 from a proxy or a CDN edge answers with plain text or
+        // HTML, and response.json() would then throw a raw parser error instead of the useful message.
+        const raw = await response.text();
+        let body: { error?: string; data?: { error?: string } } = {};
+        try {
+          body = raw ? JSON.parse(raw) : {};
+        } catch {
+          throw new Error(
+            `Telemetry endpoint returned ${response.status} ${response.headers.get("content-type") ?? "unknown content-type"}: ${raw.slice(0, 120) || "(empty body)"}`,
+          );
+        }
         if (!response.ok) throw new Error(body.error ?? body.data?.error ?? `Telemetry request failed (${response.status})`);
         if (!cancelled) setTelemetry(body.data);
       })
@@ -78,9 +88,9 @@ export function TachiTelemetryView() {
           <p>No active vault, exit script, or timelock is configured in this app.</p>
         </div>
         <div className="telemetry-card">
-          <span className="card-kicker">Payment execution</span>
-          <h3>Simulation only</h3>
-          <p>Invoice confirmation, route settlement, refunds, payouts, and x402 agent-pay do not move sats.</p>
+          <span className="card-kicker">Tachi vault execution</span>
+          <h3>Not integrated</h3>
+          <p>Vault, deposit, transfer, and broadcast never touch Tachi. Lightning settlement is separate and runs on the configured node.</p>
         </div>
       </div>
 
@@ -97,8 +107,8 @@ export function TachiTelemetryView() {
             <code>{checked ? reachable ? `reachable${telemetry?.daemon?.version ? ` · ${telemetry.daemon.version}` : ""}` : "unavailable" : "not queried by this API"}</code>
           </div>
           <div className="detail-item">
-            <span>Payment settlement:</span>
-            <code>not integrated · simulation=true</code>
+            <span>Tachi settlement:</span>
+            <code>not integrated · no vault, deposit, transfer, or broadcast calls</code>
           </div>
           {telemetry?.explorerUrl && (
             <div className="detail-item">

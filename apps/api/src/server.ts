@@ -1202,7 +1202,21 @@ app.get("/api/live/liquidity", async (request, reply) => {
   }
 });
 
-if (process.env.NODE_ENV !== "test") {
+// Vercel's Node runtime invokes a default-exported handler and never calls listen(), so the same
+// app instance is also mounted as a request handler. `npm run dev` still uses the listener below
+// and gets the watcher plus the local Lightning node.
+type NodeHandler = (request: unknown, response: unknown) => Promise<void>;
+
+const vercelHandler: NodeHandler = async (request, response) => {
+  await app.ready();
+  return app.server.emit("request", request, response);
+};
+
+export default vercelHandler;
+
+// A self-hosted run listens on a port and starts the watcher; Vercel invokes the default export
+// above with a plain req/res and must not bind a port or start background timers.
+if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
   app.listen({ port: Number(process.env.PORT ?? 3001), host: "0.0.0.0" }).then(() => {
     // Watching begins here rather than at import time, so a test suite can build the app
     // without starting background timers.

@@ -88,7 +88,11 @@ This is deliberate and stays visible. `SATSLOOM_DEMO_MODE=true` enables the simu
 
 ## Deployment
 
-`vercel.json` defines separate `web` and `api` services; `/api/*` rewrites to the Node entrypoint. Vercel's filesystem and process memory are not a shared database — the API reports its persistence mode from `/api/health`, and durable merchant workflows need a managed database plus an idempotent job/outbox before they are trustworthy.
+`vercel.json` wires the static bundle (`apps/web`) and the API (`apps/api`, whose entrypoint
+default-exports a `req`/`res` handler for the Vercel runtime). Locally the same module listens on a
+port, so `npm run dev` gets the invoice watcher and a real Lightning node. Any `.env` variable that
+must be visible to the serverless functions has to be set in Vercel — the local `.env` file that
+backs `.env.example` is not shipped to the Function.
 
 Other environment variables are listed in `.env.example`, including `SATSLOOM_PROOF_SECRET` and `SATSLOOM_ADMIN_TOKEN` for the simulation routes, and `SATSLOOM_WEBHOOK_*` which must both be set before any webhook destination is accepted.
 
