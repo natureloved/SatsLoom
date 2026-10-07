@@ -1209,7 +1209,7 @@ type NodeHandler = (request: unknown, response: unknown) => Promise<void>;
 
 const vercelHandler: NodeHandler = async (request, response) => {
   await app.ready();
-  return app.server.emit("request", request, response);
+  app.server.emit("request", request, response);
 };
 
 export default vercelHandler;

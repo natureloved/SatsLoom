@@ -99,25 +99,25 @@ export function X402Sandbox() {
 
       <div className="x402-flow-cards">
         <div className={`flow-step-card ${stage === "requesting" ? "active" : ""}`}>
-          <div className="step-num">Step 1</div>
+          <div className="sandbox-step-num">Step 1</div>
           <h4>Request API</h4>
           <p>Agent calls <code>GET /api/x402/resource</code> with zero credentials.</p>
         </div>
 
         <div className={`flow-step-card ${stage === "challenged" ? "active" : ""}`}>
-          <div className="step-num">Step 2</div>
+          <div className="sandbox-step-num">Step 2</div>
           <h4>HTTP 402 Challenge</h4>
           <p>Server returns a <code>SatsLoom-Demo</code> challenge for 50 simulated sats.</p>
         </div>
 
         <div className={`flow-step-card ${stage === "paying" ? "active" : ""}`}>
-          <div className="step-num">Step 3</div>
+          <div className="sandbox-step-num">Step 3</div>
           <h4>Settlement Simulation</h4>
           <p>The demo marks sample state as settled; no Tachi call or Bitcoin transfer occurs.</p>
         </div>
 
         <div className={`flow-step-card ${stage === "unlocked" ? "active" : ""}`}>
-          <div className="step-num">Step 4</div>
+          <div className="sandbox-step-num">Step 4</div>
           <h4>Data Unlocked</h4>
           <p>Signed demo receipt checked. This is not a proof of payment.</p>
         </div>

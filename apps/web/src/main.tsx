@@ -139,7 +139,7 @@ export function App() {
   const [livePaidCount, setLivePaidCount] = useState(0);
   const heightLabel =
     typeof health?.railHealth?.blockHeight === "number"
-      ? status.railHealth.blockHeight.toLocaleString("en-US")
+      ? health.railHealth.blockHeight.toLocaleString("en-US")
       : "—";
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -718,9 +718,9 @@ export function App() {
               <div className="terminal-modal-header">
                 <div className="terminal-modal-title">
                   <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
-                    <rect x="1" y="1" width="30" height="30" stroke="#2B2415" strokeWidth="1.5" />
+                    <rect x="1" y="1" width="30" height="30" stroke="var(--logo-frame)" strokeWidth="1.5" />
                     <path d="M6 10h20M6 16h20M6 22h20" stroke="#F7931A" strokeWidth="2" />
-                    <path d="M11 5v22M21 5v22" stroke="#EFE7D3" strokeWidth="2" />
+                    <path d="M11 5v22M21 5v22" stroke="var(--logo-glyph)" strokeWidth="2" />
                   </svg>
                   <span>SatsLoom — Merchant Terminal &amp; App Suite</span>
                 </div>
@@ -950,9 +950,9 @@ export function App() {
         <div className="nav-inner">
           <a href="#top" className="logo">
             <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-              <rect x="1" y="1" width="30" height="30" stroke="#2B2415" strokeWidth="1.5" />
+              <rect x="1" y="1" width="30" height="30" stroke="var(--logo-frame)" strokeWidth="1.5" />
               <path d="M6 10h20M6 16h20M6 22h20" stroke="#F7931A" strokeWidth="2" />
-              <path d="M11 5v22M21 5v22" stroke="#EFE7D3" strokeWidth="2" />
+              <path d="M11 5v22M21 5v22" stroke="var(--logo-glyph)" strokeWidth="2" />
             </svg>
             SATS<b>LOOM</b>
           </a>
@@ -993,9 +993,9 @@ export function App() {
         <div className="mmenu-head">
           <div className="logo">
             <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
-              <rect x="1" y="1" width="30" height="30" stroke="#2B2415" strokeWidth="1.5" />
+              <rect x="1" y="1" width="30" height="30" stroke="var(--logo-frame)" strokeWidth="1.5" />
               <path d="M6 10h20M6 16h20M6 22h20" stroke="#F7931A" strokeWidth="2" />
-              <path d="M11 5v22M21 5v22" stroke="#EFE7D3" strokeWidth="2" />
+              <path d="M11 5v22M21 5v22" stroke="var(--logo-glyph)" strokeWidth="2" />
             </svg>
             SATS<b>LOOM</b>
           </div>
@@ -1816,9 +1816,9 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
             <div className="foot-brand">
               <a href="#top" className="logo">
                 <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
-                  <rect x="1" y="1" width="30" height="30" stroke="#2B2415" strokeWidth="1.5" />
+                  <rect x="1" y="1" width="30" height="30" stroke="var(--logo-frame)" strokeWidth="1.5" />
                   <path d="M6 10h20M6 16h20M6 22h20" stroke="#F7931A" strokeWidth="2" />
-                  <path d="M11 5v22M21 5v22" stroke="#EFE7D3" strokeWidth="2" />
+                  <path d="M11 5v22M21 5v22" stroke="var(--logo-glyph)" strokeWidth="2" />
                 </svg>
                 SATS<b>LOOM</b>
               </a>
@@ -1887,9 +1887,9 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
             <div className="terminal-modal-header">
               <div className="terminal-modal-title">
                 <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
-                  <rect x="1" y="1" width="30" height="30" stroke="#2B2415" strokeWidth="1.5" />
+                  <rect x="1" y="1" width="30" height="30" stroke="var(--logo-frame)" strokeWidth="1.5" />
                   <path d="M6 10h20M6 16h20M6 22h20" stroke="#F7931A" strokeWidth="2" />
-                  <path d="M11 5v22M21 5v22" stroke="#EFE7D3" strokeWidth="2" />
+                  <path d="M11 5v22M21 5v22" stroke="var(--logo-glyph)" strokeWidth="2" />
                 </svg>
                 <span>SatsLoom — Merchant Terminal & App Suite</span>
               </div>

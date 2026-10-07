@@ -19,6 +19,15 @@
   --shadow: 0 0 0 rgba(0, 0, 0, 0);
   --grid-a: rgba(239, 231, 211, 0.028);
   --grid-b: rgba(239, 231, 211, 0.014);
+  --track: #2B2415;
+  --sidebar-bg: #0E0B07;
+  --sidebar-surface: rgba(255, 255, 255, 0.05);
+  --amber-btn: #F7931A;
+  --logo-frame: #2B2415;
+  --logo-glyph: #EFE7D3;
+  --code-bg: #0C0A06;
+  --avatar-a: #3D2D14;
+  --avatar-b: #21180A;
   --glow-a: rgba(247, 147, 26, 0.09);
   --glow-b: rgba(247, 147, 26, 0.05);
   --disp: 'Chakra Petch', sans-serif;
@@ -38,14 +47,32 @@ html[data-theme="light"] {
   --line-soft: rgba(196, 106, 0, 0.18);
   --txt: #17130A;
   --muted: #6B5F49;
-  --faint: #8C8071;
-  --amber: #B25E00;
-  --gold: #8A4600;
-  --settled: #4A7A16;
+  /* Micro-labels sit at 9-10.5px, so they need the full 4.5:1 rather than the 3:1 large-text tier. */
+  --faint: #6E6552;
+  /* Amber is the accent/link colour. It must clear 4.5:1 on the lightest panel (#F7F2E7), not
+     just on white, or panel-body text and links silently fail AA. */
+  --amber: #935000;
+  --gold: #7E3D00;
+  /* Buttons use the mainnet-orange fill with near-black text (8.5:1), kept separate from --amber
+     which must stay dark for AA on panels. */
+  --amber-btn: #F7931A;
+  /* 4.5:1 on the lightest panel #F5EFE2, not just white. */
+  --settled: #456E13;
   --alert: #C22F1B;
   --shadow: 0 6px 24px rgba(60, 42, 12, 0.08);
   --grid-a: rgba(23, 19, 10, 0.03);
   --grid-b: rgba(23, 19, 10, 0.015);
+  --track: #E0D4BC;
+  /* The console sidebar stays a dark rail in both themes: it anchors the app and the light
+     palette reads as a deliberate contrast strip rather than an un-themed leftover. */
+  --sidebar-bg: #17120A;
+  --sidebar-surface: rgba(255, 255, 255, 0.07);
+  --logo-frame: #C9BCA1;
+  --logo-glyph: #3A3226;
+  --code-bg: #FFFDF8;
+  --menu-bg: rgba(251, 247, 238, 0.98);
+  --avatar-a: #FFE2BC;
+  --avatar-b: #F7D9A6;
   --glow-a: rgba(247, 147, 26, 0.1);
   --glow-b: rgba(178, 94, 0, 0.05);
 }
@@ -239,7 +266,7 @@ header.satsloom-header.scrolled {
   font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  background: var(--amber);
+  background: var(--amber-btn);
   color: #1A1206;
   padding: 9px 18px;
   border: none;
@@ -329,7 +356,7 @@ body.menu-open #burger span:nth-child(3),
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(12, 10, 6, 0.98);
+  background: var(--menu-bg, rgba(12, 10, 6, 0.98));
   backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
@@ -486,9 +513,9 @@ h1.display .l2 { color: var(--amber); }
 }
 
 .btn.primary {
-  background: var(--amber);
+  background: var(--amber-btn);
   color: #1A1206;
-  border: 1px solid var(--amber);
+  border: 1px solid var(--amber-btn);
 }
 
 .btn.primary:hover {
@@ -1007,7 +1034,7 @@ h2 {
   font-family: var(--mono);
   font-size: 11px;
   color: #1A1206;
-  background: var(--amber);
+  background: var(--amber-btn);
   padding: 3px 8px;
   border-radius: 2px;
   font-weight: 600;
@@ -1088,7 +1115,8 @@ h2 {
 }
 
 .evt {
-  background: var(--ink);
+  /* Event rows sit on the page surface, not the code-editor black, so they must follow the theme. */
+  background: var(--code-bg, var(--ink));
   border: 1px solid var(--line);
   border-left: 3px solid var(--settled);
   padding: 12px 14px;
@@ -2097,7 +2125,7 @@ footer {
   line-height: 0.95;
   letter-spacing: 0.04em;
   color: transparent;
-  -webkit-text-stroke: 1px rgba(247, 147, 26, 0.35);
+  -webkit-text-stroke: 1px rgba(247, 147, 26, 0.55);
   text-align: center;
   margin-bottom: 60px;
   user-select: none;
@@ -3701,7 +3729,7 @@ footer {
   flex-direction: column;
   padding: 24px 16px 18px;
   border-right: 1px solid var(--line);
-  background: #0E0B07;
+  background: var(--sidebar-bg, #0E0B07);
   overflow-y: auto;
   box-sizing: border-box;
 }
@@ -3750,7 +3778,9 @@ footer {
   color: var(--txt);
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--panel);
+  /* The sidebar is a dark rail in both themes, so this pill must use the sidebar's own surface —
+     --panel flips to white in light mode and would strand light text on a white block. */
+  background: var(--sidebar-surface, rgba(255, 255, 255, 0.05));
   text-align: left;
   width: 100%;
 }
@@ -3889,7 +3919,7 @@ footer {
   overflow: hidden;
   border-radius: 50%;
   color: var(--gold);
-  background: linear-gradient(135deg, #3D2D14, #21180A);
+  background: linear-gradient(135deg, var(--avatar-a, #3D2D14), var(--avatar-b, #21180A));
   font-size: 11px;
   font-weight: 800;
   border: 1px solid rgba(247, 147, 26, 0.3);
@@ -3980,8 +4010,10 @@ footer {
   padding: 0 18px;
   border: 1px solid var(--amber);
   border-radius: 8px;
+  /* The amber fill carries near-black text, so it must stay light enough for that pairing. In light
+     mode --amber darkens for AA on panels, which would break the button's own contrast. */
   color: #100C05;
-  background: var(--amber);
+  background: var(--amber-btn, var(--amber));
   font-family: var(--disp);
   font-size: 13px;
   font-weight: 700;
@@ -4260,7 +4292,7 @@ footer {
   height: 120px;
   place-items: center;
   border-radius: 50%;
-  background: #2B2415;
+  background: var(--track, #2B2415);
 }
 .donut:before {
   content: "";
@@ -4334,7 +4366,7 @@ footer {
 .goals-content { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 4px 16px 14px; }
 .goal-title { display: flex; justify-content: space-between; margin-bottom: 7px; font-size: 11px; font-weight: 700; color: var(--txt); }
 .goal-title span { color: var(--amber); font-family: "DM Mono", monospace; font-size: 10px; }
-.progress { height: 6px; overflow: hidden; border-radius: 5px; background: #2B2415; }
+.progress { height: 6px; overflow: hidden; border-radius: 5px; background: var(--track, #2B2415); }
 .progress span { display: block; height: 100%; border-radius: inherit; background: var(--amber); }
 .goal-caption { margin-top: 5px; color: var(--faint); font-size: 10px; }
 
@@ -5612,7 +5644,8 @@ footer {
 }
 
 .ledger-table th {
-  background: #141009;
+  /* Header row of the ledger tables: sits on the page, not the editor black. */
+  background: var(--code-bg);
   color: var(--faint);
   font-size: 10.5px;
   letter-spacing: 0.08em;
@@ -5950,7 +5983,8 @@ footer {
   background: rgba(247, 147, 26, 0.06);
 }
 
-.step-num {
+/* x402 playground step label: plain text, no fill (the filled badge is .step-num in the flow list). */
+.sandbox-step-num {
   font-family: "DM Mono", monospace;
   font-size: 10px;
   color: var(--amber);
@@ -6756,4 +6790,57 @@ html[data-theme="light"] header#hdr.scrolled {
   right: 16px;
   z-index: 40;
   background: var(--panel);
+}
+
+/* ============ LIGHT-MODE CONSOLE FIXES ============ */
+
+/* The sidebar keeps its dark rail in light mode, so its text must stay light too — the palette
+   tokens that darken in light are exactly wrong inside it. */
+html[data-theme="light"] .sidebar {
+  color: #EFE7D3;
+}
+html[data-theme="light"] .sidebar .workspace-name,
+html[data-theme="light"] .sidebar .sidebar-label,
+html[data-theme="light"] .sidebar .profile-copy strong,
+html[data-theme="light"] .sidebar .nav-item.active {
+  color: #EFE7D3;
+}
+html[data-theme="light"] .sidebar .brand,
+html[data-theme="light"] .sidebar .nav-item,
+html[data-theme="light"] .sidebar .nav-item.active,
+html[data-theme="light"] .sidebar .sidebar-label,
+html[data-theme="light"] .sidebar .workspace-text,
+html[data-theme="light"] .sidebar .profile-copy strong {
+  color: #EFE7D3;
+}
+html[data-theme="light"] .sidebar .brand-subtitle,
+html[data-theme="light"] .sidebar .nav-item:not(.active),
+html[data-theme="light"] .sidebar .workspace-label,
+html[data-theme="light"] .sidebar .profile-copy span,
+html[data-theme="light"] .sidebar .demo-limits,
+html[data-theme="light"] .sidebar .sidebar-foot-note {
+  color: #9A8F79;
+}
+html[data-theme="light"] .sidebar .nav-item.active {
+  background: rgba(247, 147, 26, 0.18);
+}
+html[data-theme="light"] .sidebar .brand-mark {
+  color: #F7C36B;
+}
+html[data-theme="light"] .donut-center span {
+  color: #5A5342;
+}
+html[data-theme="light"] .sidebar .nav-title,
+html[data-theme="light"] .sidebar code,
+html[data-theme="light"] .sidebar .nav-kicker,
+html[data-theme="light"] .sidebar .nav-item svg {
+  color: #B8AC95;
+}
+html[data-theme="light"] .avatar {
+  color: #4A2400;
+  border-color: rgba(178, 94, 0, 0.35);
+}
+html[data-theme="light"] .sidebar .degraded-badge,
+html[data-theme="light"] .sidebar .node-status-pill {
+  color: #EFE7D3;
 }

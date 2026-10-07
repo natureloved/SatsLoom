@@ -30,7 +30,7 @@ export type InvoiceAggregate = {
   executionStarted: boolean;
   settlement?: Settlement;
   fallbackHistory: FallbackEvent[];
-  purpose?: "x402-demo";
+  purpose?: "x402-demo" | "x402-live";
 };
 
 export type SettlementExecution = {
