@@ -111,7 +111,6 @@ export class LndRestBackend implements LightningNodeBackend {
     // LND accepts `value_msat` as a string, so sub-satoshi amounts survive the round trip.
     const body: Record<string, unknown> = {
       value_msat: input.amountMsat.toString(),
-      value: (input.amountMsat / 1000n).toString(),
       memo: input.description,
       expiry: String(input.expirySeconds),
       private: true,

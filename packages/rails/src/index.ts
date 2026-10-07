@@ -516,3 +516,6 @@ export class LightningRail implements PaymentRail {
 export { decodeInvoice, verifyPreimage } from "@satsloom/bolt11";
 export { FixtureLightningBackend } from "./fixture.js";
 export { LndRestBackend, type LndRestBackendOptions } from "./lnd-rest.js";
+export { buildLightningRailFromEnv, type RailSource, type ResolvedRail } from "./config.js";
+export { InvoiceWatcher, type WatchTarget, type WatcherOptions } from "./watcher.js";
+export { PaymentCorrespondence } from "./correspondence.js";

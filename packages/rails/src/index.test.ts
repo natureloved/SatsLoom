@@ -315,7 +315,11 @@ describe("LND REST backend", () => {
     const created = await backend().createInvoice({ amountMsat: 21_000n, description: "Order 101", expirySeconds: 900 });
     expect(created.paymentHash).toBe(PAYMENT_HASH);
     expect(created.expiresAt).toBe(1_700_000_900);
-    expect(lastBody).toMatchObject({ value_msat: "21000", value: "21", memo: "Order 101", expiry: "900" });
+    // Verified against a real LND 0.21.4 on signet: `value` and `value_msat` are mutually
+    // exclusive and sending both fails with "sat and msat arguments are mutually exclusive".
+    // Sub-satoshi precision is the point, so `value_msat` alone is the correct body.
+    expect(lastBody).toMatchObject({ value_msat: "21000", memo: "Order 101", expiry: "900" });
+    expect(lastBody).not.toHaveProperty("value");
   });
 
   it("maps LND invoice states and only surfaces a preimage when one is present", async () => {

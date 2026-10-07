@@ -13,6 +13,13 @@ import {
   settleInvoice,
   type InvoiceAggregate,
 } from "@satsloom/domain";
+import {
+  InvoiceWatcher,
+  PaymentCorrespondence,
+  buildLightningRailFromEnv,
+  type PaymentObservation,
+  type PaymentRequest,
+} from "@satsloom/rails";
 import type { Invoice, Merchant, RouteQuote, Settlement } from "@satsloom/shared";
 import { jsonSafe } from "@satsloom/shared";
 import { PersistentStore, type IdempotencyRecord, type WebhookLog } from "./storage.ts";
@@ -26,7 +33,7 @@ export const app = Fastify({
   bodyLimit: 64 * 1024,
 });
 
-const mode = "degraded" as const;
+const mode = "live" as const;
 const demoMode = process.env.SATSLOOM_DEMO_MODE === "true" ||
   (process.env.SATSLOOM_DEMO_MODE !== "false" && process.env.NODE_ENV !== "production");
 const adminToken = process.env.SATSLOOM_ADMIN_TOKEN ?? "";
@@ -37,6 +44,46 @@ const storeFile = process.env.NODE_ENV === "test"
   : process.env.SATSLOOM_DATA_FILE ?? (process.env.VERCEL === "1" ? undefined : defaultStoreFile);
 const store = new PersistentStore(storeFile);
 const loaded = store.load();
+
+/* ------------------------------------------------------------- rail selection */
+/**
+ * Live payments become available as soon as a node is configured; the simulation routes stay
+ * available behind demo mode. Both live side by side, and every response envelope states which
+ * rail produced it, so a caller cannot be confused about whether real value moved.
+ */
+let resolvedRail;
+try {
+  resolvedRail = buildLightningRailFromEnv();
+} catch (error) {
+  // A strictly-configured but broken node takes the live routes offline loudly, not the whole
+  // API: the demo/simulation surface keeps working and live routes report 503 with the reason.
+  resolvedRail = {
+    source: "fixture" as const,
+    rail: buildLightningRailFromEnv({ ...process.env, SATSLOOM_RAIL: "fixture" }).rail,
+    fellBack: true,
+    fallbackReason: (error as Error).message,
+  };
+}
+const activeRail = resolvedRail.rail;
+const railConfigError = resolvedRail.fellBack ? resolvedRail.fallbackReason : undefined;
+const railUnavailable = () => railConfigError !== undefined || resolvedRail.source !== "lnd";
+/** Payment requests keyed by payment hash, so the watcher can re-check without a database. */
+const paymentRequests = new Map<string, PaymentRequest>();
+/**
+ * Both directions of the hash <-> invoice correspondence, so the credit path (arriving keyed by
+ * payment hash) and the read path (arriving keyed by invoice id) each resolve to the other side
+ * with a plain call. A single-direction map here is a silent credit blocker, which is exactly
+ * the bug this type exists to prevent.
+ */
+const correspondence = new PaymentCorrespondence();
+const watcher = new InvoiceWatcher({
+  rail: activeRail,
+  onChange: (observation: PaymentObservation) => onRailObservation(observation),
+  onError: (error, context) => {
+    app.log?.warn?.({ err: error, railRequestId: context.railRequestId, failures: context.consecutiveFailures },
+      "lightning rail observation failed");
+  },
+});
 
 const merchant: Merchant = {
   id: "merchant-demo",
@@ -90,6 +137,70 @@ const envelope = (requestId: string, data: unknown, extra: Record<string, unknow
   ...extra,
   data: jsonSafe(data),
 });
+
+/** Rail facts that must never be asserted by a caller. */
+const railSummary = () => {
+  const descriptor = activeRail.describe();
+  return {
+    rail: descriptor.id,
+    kind: descriptor.kind,
+    network: descriptor.network,
+    mode: descriptor.mode,
+    live: descriptor.live,
+    verified: descriptor.verified,
+    custody: descriptor.custody,
+    note: descriptor.note,
+  };
+};
+
+/**
+ * The one place a real settlement is credited.
+ *
+ * Deliberately narrow: the watcher reports an observation, this turns it into a verified
+ * preimage-backed payment record, and it refuses anything that does not hash to the committed
+ * payment hash. It never invents money, and a second call with the same preimage is a no-op.
+ */
+async function onRailObservation(observation: PaymentObservation) {
+  const paymentHash = observation.paymentHash.toLowerCase();
+  const request = paymentRequests.get(paymentHash);
+  if (!request) return; // somebody else's invoice: not ours to credit
+  if (observation.state !== "paid") return;
+  const invoiceId = correspondence.invoiceIdFor(paymentHash);
+  if (!invoiceId) return;
+  const aggregate = aggregates.get(invoiceId);
+  if (!aggregate || aggregate.lifecycle === "SETTLED") return;
+
+  const verdict = await activeRail.credit(request);
+  if (!verdict.credited) {
+    app.log?.warn?.({ reason: verdict.reason, detail: verdict.detail, invoiceId }, "settlement refused by the credit path");
+    return;
+  }
+  // The invoice state machine owns the lifecycle; this only records the verified payment.
+  try {
+    confirmPayment(aggregate);
+  } catch {
+    // already confirmed, or expired: recording it as verified payment is still correct.
+  }
+  aggregate.invoice.status = "confirmed";
+  aggregate.lifecycle = "PAYMENT_CONFIRMED";
+  const received = {
+    invoiceId,
+    paymentHash,
+    preimage: verdict.preimage,
+    amountMsat: verdict.amountMsat,
+    surplusMsat: verdict.surplusMsat,
+    settledAt: verdict.settledAt,
+    rail: request.rail,
+    network: request.network,
+    mode: request.mode,
+    verified: true,
+    simulation: false,
+  };
+  payouts.set(invoiceId, { ...received, id: crypto.randomUUID(), amountSats: verdict.amountMsat / 1000n, status: "credited", createdAt: new Date(verdict.settledAt * 1000).toISOString(), verification: "preimage-sha256" });
+  publishInvoiceEvent(invoiceId, "payment.received", received);
+  persist();
+  app.log?.info?.(received, "real lightning payment credited");
+}
 
 export function isValidAdminToken(providedToken: string | undefined, expectedToken = adminToken): boolean {
   if (!expectedToken || !providedToken) return false;
@@ -407,13 +518,26 @@ app.addHook("onSend", async (request, reply, payload) => {
 });
 app.options("/*", async (_request, reply) => reply.code(204).send());
 
-app.get("/api/health", async (request) => envelope(request.id, {
-  ok: true,
-  service: "satsloom-api",
-  paymentExecution: "simulated-only",
-  persistence: storeFile ? "single-process-local-json" : "ephemeral-process-memory",
-  sharedDatabase: false,
-}));
+app.get("/api/health", async (request) => {
+  const descriptor = activeRail.describe();
+  let railHealth;
+  try {
+    railHealth = await activeRail.health();
+  } catch (error) {
+    railHealth = { reachable: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+  return envelope(request.id, {
+    ok: true,
+    service: "satsloom-api",
+    paymentExecution: resolvedRail.source === "lnd" ? "lightning-rail" : "simulated-only",
+    persisted: Boolean(storeFile),
+    rail: railSummary(),
+    railHealth,
+    railConfigError: railConfigError ?? null,
+    persistence: storeFile ? "single-process-local-json" : "ephemeral-process-memory",
+    sharedDatabase: false,
+  });
+});
 
 function safeConfiguredOrigin(configured: string | undefined): string | null {
   if (!configured) return null;
@@ -851,8 +975,136 @@ app.post("/api/x402/agent-pay", async (request: any, reply) => {
   }
 });
 
+/* ------------------------------------------------------------------ live payments */
+/**
+ * The live payment surface.
+ *
+ * These routes exist so that a real BOLT11 invoice can be issued, watched, and credited, and
+ * so that every claim they make is verifiable from the response alone: which rail, which
+ * network, which mode, and (once a payment lands) the preimage that proves it.
+ */
+app.post("/api/live/invoices", async (request: any, reply) => {
+  if (railUnavailable()) {
+    return reply.code(503).send(envelope(request.id, null, {
+      error: "A configured and reachable Lightning node is required for live invoices",
+      railConfigError: railConfigError ?? null,
+    }));
+  }
+  const amountSats = parseSats(request.body?.amountSats);
+  if (amountSats === null) return reply.code(400).send(envelope(request.id, null, { error: "amountSats must be a positive integer within the Bitcoin supply" }));
+  const memo = typeof request.body?.memo === "string" ? request.body.memo.trim().slice(0, 200) : "SatsLoom live invoice";
+  const expirySeconds = Number.isInteger(request.body?.expirySeconds) && request.body.expirySeconds > 0 && request.body.expirySeconds <= 86_400
+    ? request.body.expirySeconds
+    : 600;
+  const now = new Date();
+  const invoice: Invoice = {
+    id: crypto.randomUUID(),
+    amountSats,
+    memo,
+    status: "pending",
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + expirySeconds * 1000).toISOString(),
+  };
+  let paymentRequest;
+  try {
+    paymentRequest = await activeRail.createRequest({
+      amountMsat: amountSats * 1000n,
+      description: memo,
+      expirySeconds,
+      onchainFallbackAddress: undefined,
+    });
+  } catch (error) {
+    return reply.code(503).send(envelope(request.id, null, {
+      error: `The lightning rail could not issue an invoice: ${(error as Error).message}`,
+    }));
+  }
+  const aggregate = markQuoted(createInvoiceAggregate(invoice));
+  aggregates.set(invoice.id, aggregate);
+  paymentRequests.set(paymentRequest.paymentHash, paymentRequest);
+  // Indexed hash -> invoice id so the credit path can resolve an observation (which arrives
+  // keyed by payment hash) back to the invoice it belongs to. Keeping this lookup keyed the
+  // same way as the credit path reads it is what makes credit reachable at all.
+  correspondence.link(paymentRequest.paymentHash, invoice.id);
+  // Watch immediately: the payer may settle before this response is even delivered.
+  watcher.watch({ railRequestId: paymentRequest.paymentHash, expiresAt: paymentRequest.expiresAt, invoiceId: invoice.id });
+  persist();
+  reply.header("x-satsloom-payment-hash", paymentRequest.paymentHash);
+  return envelope(request.id, {
+    invoice,
+    payment: {
+      rail: paymentRequest.rail,
+      network: paymentRequest.network,
+      mode: paymentRequest.mode,
+      bolt11: paymentRequest.invoice,
+      /** BIP21 URI so a wallet can pay without script support. */
+      bip21: `bitcoin:?${new URLSearchParams({ lightning: paymentRequest.invoice }).toString()}`,
+      paymentHash: paymentRequest.paymentHash,
+      amountMsat: paymentRequest.amountMsat,
+      expiresAt: new Date(paymentRequest.expiresAt * 1000).toISOString(),
+      description: paymentRequest.description,
+    },
+  }, { simulation: false, rail: railSummary() });
+});
+
+/** Observe the rail directly, independent of any client polling. */
+app.get("/api/live/invoices/:id", async (request: any, reply) => {
+  if (railUnavailable()) {
+    return reply.code(503).send(envelope(request.id, null, { error: "No Lightning node is configured" }));
+  }
+  const aggregate = aggregates.get(request.params.id);
+  if (!aggregate) return reply.code(404).send(envelope(request.id, null, { error: "invoice not found" }));
+  const paymentHash = correspondence.paymentHashFor(request.params.id);
+  const paymentRequest = paymentHash ? paymentRequests.get(paymentHash) : undefined;
+  if (!paymentRequest) {
+    return envelope(request.id, { invoice: aggregate.invoice, payment: null, settlement: aggregate.settlement ?? null });
+  }
+  let observation;
+  try {
+    observation = await activeRail.observe(paymentRequest.railRequestId);
+  } catch (error) {
+    return reply.code(503).send(envelope(request.id, null, { error: `Could not reach the node: ${(error as Error).message}` }));
+  }
+  // Crediting here as well as in the watcher is safe: the credit path is a single-claim
+  // registry keyed on the preimage, so exactly one of the two paths records the payment.
+  if (observation.state === "paid") await onRailObservation(observation);
+  return envelope(request.id, {
+    invoice: aggregate.invoice,
+    payment: {
+      bolt11: paymentRequest.invoice,
+      paymentHash: paymentRequest.paymentHash,
+      network: paymentRequest.network,
+      mode: paymentRequest.mode,
+      rail: paymentRequest.rail,
+      amountMsat: paymentRequest.amountMsat,
+      expiresAt: new Date(paymentRequest.expiresAt * 1000).toISOString(),
+    },
+    observation,
+    // The credit path records the verified payout in `payouts`; the route-level settlement
+    // read is the domain's own field. Reporting both means a client can see the settlement on
+    // the invoice it paid without needing the payout id first.
+    settlement: aggregate.settlement ?? (payouts.get(request.params.id)
+      ? { ...payouts.get(request.params.id), status: "credited" }
+      : null),
+  }, { simulation: false, rail: railSummary() });
+});
+
+/** Live liquidity, straight from the node. */
+app.get("/api/live/liquidity", async (request, reply) => {
+  if (railUnavailable()) return reply.code(503).send(envelope(request.id, null, { error: "No Lightning node is configured" }));
+  try {
+    const liquidity = await activeRail.liquidity();
+    return envelope(request.id, liquidity, { simulation: false, rail: railSummary() });
+  } catch (error) {
+    return reply.code(503).send(envelope(request.id, null, { error: `Could not read liquidity from the node: ${(error as Error).message}` }));
+  }
+});
+
 if (process.env.NODE_ENV !== "test") {
-  app.listen({ port: Number(process.env.PORT ?? 3001), host: "0.0.0.0" }).catch((error) => {
+  app.listen({ port: Number(process.env.PORT ?? 3001), host: "0.0.0.0" }).then(() => {
+    // Watching begins here rather than at import time, so a test suite can build the app
+    // without starting background timers.
+    watcher.start();
+  }).catch((error) => {
     app.log.error(error);
     process.exit(1);
   });
