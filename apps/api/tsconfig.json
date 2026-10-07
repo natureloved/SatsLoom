@@ -17,7 +17,9 @@
     "src/storage.ts",
     "../../packages/shared/src/index.ts",
     "../../packages/router/src/index.ts",
-    "../../packages/domain/src/index.ts"
+    "../../packages/domain/src/index.ts",
+    "../../packages/rails/src/index.ts",
+    "../../packages/bolt11/src/index.ts"
   ],
   "exclude": [
     "src/**/*.test.ts",
