@@ -688,6 +688,7 @@ export function App() {
           liquidity={liquidity}
           routedSats={routedSats}
           status={status}
+          health={health}
           invoice={invoice}
           routes={routes}
           settlement={settlement}
@@ -698,6 +699,7 @@ export function App() {
               createInvoice();
             }
           }}
+          onOpenLiveReceive={(amt, memo) => issueLiveInvoice(amt, memo)}
           onOpenSend={() => {
             createInvoice();
           }}
@@ -945,7 +947,48 @@ export function App() {
             onClose={() => setShowCheckoutModal(false)}
             onSimulatePay={simulatePayment}
             isSimulated={isSimulated}
+            onSwitchToLive={() => {
+              setShowCheckoutModal(false);
+              void issueLiveInvoice(Number(invoice?.amountSats) || 1000, invoice?.memo || "SatsLoom signet invoice");
+            }}
+            isLiveAvailable={health?.paymentExecution === "lightning-rail"}
           />
+        )}
+
+        {/* Live Signet Checkout Modal */}
+        {showLiveCheckout && (
+          <div className="modal-backdrop" onClick={() => setShowLiveCheckout(false)}>
+            <div className="modal-content checkout-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <div className="checkout-brand">
+                  <span className="bitcoin-logo">₿</span>
+                  <div>
+                    <h3>SatsLoom · Live Signet Invoice</h3>
+                    <p className="checkout-subtitle">
+                      {health?.rail?.network ? `Bitcoin ${health.rail.network} · Real BOLT11` : "No rail configured"}
+                    </p>
+                  </div>
+                </div>
+                <button className="close-btn" onClick={() => setShowLiveCheckout(false)} aria-label="Close modal">✕</button>
+              </div>
+              {liveCheckoutError && !liveInvoice ? (
+                <div className="live-error" role="status">
+                  <strong>No invoice was issued.</strong> {liveCheckoutError}
+                </div>
+              ) : (
+                <LiveSignetCheckout
+                  request={liveInvoice}
+                  rail={health?.rail ?? null}
+                  onIssue={(amountSats, memo) => issueLiveInvoice(amountSats, memo).catch(() => {})}
+                  onClose={() => setShowLiveCheckout(false)}
+                  onPaid={(paymentHash) => {
+                    setLivePaidCount((n) => n + 1);
+                    showToast(`Lightning payment received (${paymentHash.slice(0, 12)}…)`);
+                  }}
+                />
+              )}
+            </div>
+          </div>
         )}
       </>
     );
@@ -2165,6 +2208,11 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
           onClose={() => setShowCheckoutModal(false)}
           onSimulatePay={simulatePayment}
           isSimulated={isSimulated}
+          onSwitchToLive={() => {
+            setShowCheckoutModal(false);
+            void issueLiveInvoice(Number(invoice?.amountSats) || 1000, invoice?.memo || "SatsLoom signet invoice");
+          }}
+          isLiveAvailable={health?.paymentExecution === "lightning-rail"}
         />
       )}
     </div>

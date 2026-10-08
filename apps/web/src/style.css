@@ -2477,17 +2477,195 @@ footer {
 }
 
 .modal-content.checkout-modal,
+.modal-content.issue-invoice-modal,
 .checkout-modal-card {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 28px;
-  max-width: 440px;
+  max-width: 460px;
   width: 100%;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85);
   position: relative;
   max-height: 94vh;
   overflow-y: auto;
+}
+
+.issue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.issue-rail-tabs {
+  display: flex;
+  gap: 6px;
+  background: var(--ink2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.issue-tab-btn {
+  flex: 1;
+  font-family: var(--disp);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.issue-tab-btn.active {
+  background: var(--amber);
+  color: #0E0A04 !important;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(247, 147, 26, 0.3);
+}
+
+.issue-rail-banner {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  font-family: var(--mono);
+}
+
+.issue-rail-banner.live {
+  background: rgba(184, 224, 105, 0.1);
+  border: 1px solid rgba(184, 224, 105, 0.35);
+  color: var(--settled);
+}
+
+.issue-rail-banner.fixture {
+  background: rgba(247, 147, 26, 0.08);
+  border: 1px solid rgba(247, 147, 26, 0.25);
+  color: var(--amber);
+}
+
+.issue-rail-banner code {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.issue-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.issue-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  font-weight: 600;
+}
+
+.issue-amount-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.issue-input {
+  width: 100%;
+  background: var(--ink2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 60px 10px 14px;
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.issue-input:focus {
+  border-color: var(--amber);
+}
+
+.issue-unit {
+  position: absolute;
+  right: 14px;
+  font-family: var(--disp);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--amber);
+  pointer-events: none;
+}
+
+.issue-quick-amounts {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.quick-amt-pill {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quick-amt-pill:hover,
+.quick-amt-pill.active {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(247, 147, 26, 0.1);
+}
+
+.issue-actions {
+  margin-top: 6px;
+}
+
+.live-error-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(224, 82, 82, 0.08);
+  border: 1px solid rgba(224, 82, 82, 0.25);
+  border-radius: 10px;
+}
+
+.live-error-title {
+  font-family: var(--disp);
+  font-weight: 700;
+  font-size: 14px;
+  color: #ff6b6b;
+}
+
+.live-error-msg {
+  font-size: 12px;
+  color: var(--txt);
+  line-height: 1.45;
+}
+
+.live-error-instructions {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.live-error-instructions ol {
+  padding-left: 18px;
+  margin-top: 6px;
 }
 
 .modal-header {
@@ -2729,6 +2907,74 @@ footer {
 .banner-info span {
   color: var(--gold);
   font-weight: 700;
+}
+
+.checkout-live-switch-callout {
+  background: rgba(247, 147, 26, 0.08);
+  border: 1px solid rgba(247, 147, 26, 0.28);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.live-callout-text {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--txt);
+}
+
+.live-callout-text strong {
+  display: block;
+  color: var(--amber);
+  margin-bottom: 2px;
+  font-weight: 700;
+}
+
+.live-callout-text span {
+  color: var(--muted);
+}
+
+.live-switch-btn {
+  font-family: var(--disp);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 8px 14px;
+  background: var(--amber);
+  color: #0E0A04 !important;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.live-switch-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(247, 147, 26, 0.4);
+}
+
+.checkout-link-row {
+  margin-top: 10px;
+  text-align: center;
+}
+
+.btn-ghost-link {
+  background: none;
+  border: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px;
+  transition: color 0.15s;
+}
+
+.btn-ghost-link:hover {
+  color: var(--gold);
 }
 
 .checkout-meta-grid {
@@ -7211,6 +7457,33 @@ html[data-theme="light"] .terminal-modal-backdrop {
 html[data-theme="light"] .checkout-simulation-banner {
   background: #F5EFE2;
   border-color: var(--line);
+}
+html[data-theme="light"] .issue-rail-tabs {
+  background: #F5EFE2;
+  border-color: var(--line);
+}
+html[data-theme="light"] .issue-tab-btn {
+  color: #6E614A;
+}
+html[data-theme="light"] .issue-tab-btn.active {
+  background: var(--amber);
+  color: #17130A !important;
+}
+html[data-theme="light"] .issue-input {
+  background: #FAF6ED;
+  border-color: var(--line);
+  color: #17130A;
+}
+html[data-theme="light"] .quick-amt-pill {
+  background: #F5EFE2;
+  border-color: var(--line);
+  color: #5A4E38;
+}
+html[data-theme="light"] .quick-amt-pill:hover,
+html[data-theme="light"] .quick-amt-pill.active {
+  background: rgba(247, 147, 26, 0.12);
+  border-color: var(--amber);
+  color: #935000;
 }
 html[data-theme="light"] .ecommerce-code-preview pre,
 html[data-theme="light"] .code-panel pre {
