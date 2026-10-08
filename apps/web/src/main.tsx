@@ -958,43 +958,60 @@ export function App() {
       {/* ================= NAV ================= */}
       <header id="hdr" className={scrolled ? "scrolled" : ""}>
         <div className="nav-inner">
-          <a href="#top" className="logo">
-            <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+          <a href="#top" className="logo" aria-label="SatsLoom home">
+            <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
               <rect x="1" y="1" width="30" height="30" stroke="var(--logo-frame)" strokeWidth="1.5" />
               <path d="M6 10h20M6 16h20M6 22h20" stroke="#F7931A" strokeWidth="2" />
               <path d="M11 5v22M21 5v22" stroke="var(--logo-glyph)" strokeWidth="2" />
             </svg>
-            SATS<b>LOOM</b>
+            <span>SATS<b>LOOM</b></span>
           </a>
-          <nav className="nav-links">
+
+          <nav className="nav-links" aria-label="Primary navigation">
             <a href="#flow">The Weave</a>
             <a href="#primitives">Primitives</a>
             <a href="#routelab">Route Lab</a>
             <a href="#x402">x402</a>
             <a href="#selfhost">Self-host</a>
           </nav>
-          <div className="status-pill">
-            <span className="pulse-dot"></span>
-            {health?.railHealth?.reachable ? `${health.rail.rail.toUpperCase()} NODE · REACHABLE` : "NO LIGHTNING NODE CONFIGURED"}
+
+          <div className="nav-actions">
+            <div
+              className={`status-pill ${health?.railHealth?.reachable ? "live" : "simulation"}`}
+              title={
+                health?.railHealth?.reachable
+                  ? `${health.rail.rail.toUpperCase()} node reachable on ${health.rail.network}`
+                  : "Running simulated payment rails (no live Lightning node configured)"
+              }
+            >
+              <span className="pulse-dot"></span>
+              <span className="status-pill-text">
+                {health?.railHealth?.reachable ? `${health.rail.rail.toUpperCase()} · LIVE` : "NO LIGHTNING NODE"}
+              </span>
+            </div>
+
+            <ThemeToggle theme={theme} onToggle={toggleTheme} className="nav-theme" />
+
+            <button
+              className="nav-cta-secondary"
+              onClick={() => {
+                setCurrentView("dashboard");
+                window.location.hash = "dashboard";
+              }}
+            >
+              Dashboard ⚡
+            </button>
+
+            <a href="#selfhost" className="nav-cta">
+              Deploy
+            </a>
+
+            <button id="burger" aria-label="menu" onClick={() => setMenuOpen(!menuOpen)}>
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
           </div>
-          <ThemeToggle theme={theme} onToggle={toggleTheme} className="nav-theme" />
-          <button
-            className="nav-cta-secondary"
-            onClick={() => {
-              setCurrentView("dashboard");
-              window.location.hash = "dashboard";
-            }}
-          >
-            Dashboard ⚡
-          </button>
-          <a href="#selfhost" className="nav-cta">
-            Deploy
-          </a>
-          <button id="burger" aria-label="menu" onClick={() => setMenuOpen(!menuOpen)}>
-            <span></span>
-            <span></span>
-            <span></span>
-          </button>
         </div>
       </header>
 
