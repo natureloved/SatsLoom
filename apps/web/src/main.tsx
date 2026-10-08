@@ -628,10 +628,20 @@ export function App() {
 
   const queuePayout = async (payoutAmount: string, destination: string) => {
     await action(async () => {
-      await api("/api/payouts", {
-        method: "POST",
-        body: JSON.stringify({ amountSats: payoutAmount, destination }),
-      });
+      const trimmed = destination.trim();
+      if (trimmed.toLowerCase().startsWith("ln")) {
+        await api("/api/live/payouts", {
+          method: "POST",
+          body: JSON.stringify({ invoice: trimmed }),
+        });
+        showToast("Live Lightning payout settled via preimage proof!");
+      } else {
+        await api("/api/payouts", {
+          method: "POST",
+          body: JSON.stringify({ amountSats: payoutAmount, destination: trimmed }),
+        });
+        showToast("Simulation payout queued");
+      }
       await refreshOperations();
     });
   };

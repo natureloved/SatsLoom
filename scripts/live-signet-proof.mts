@@ -30,30 +30,45 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const API = process.env.SATSLOOM_API_URL ?? "http://127.0.0.1:3019";
+let API = process.env.SATSLOOM_API_URL ?? "";
 const amountSats = Number(process.argv[2] ?? 1000);
 const payerDir = process.env.PAYER_LNCLI_DIR;
 const nodeDir = process.env.LNCLI_DIR ?? payerDir;
 
+class ScriptFailure extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScriptFailure";
+  }
+}
+
 function fail(message: string): never {
-  console.error(`\nFAIL: ${message}`);
-  process.exit(1);
+  throw new ScriptFailure(message);
 }
 
 async function get(path: string) {
-  const res = await fetch(`${API}${path}`);
-  const body = await res.json().catch(() => null);
-  return { status: res.status, body };
+  try {
+    const res = await fetch(`${API}${path}`, { signal: AbortSignal.timeout(3000) });
+    const body = await res.json().catch(() => null);
+    return { status: res.status, body };
+  } catch (err: any) {
+    return { status: 0, body: null, error: err?.message };
+  }
 }
 
 async function post(path: string, payload: unknown) {
-  const res = await fetch(`${API}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const body = await res.json().catch(() => null);
-  return { status: res.status, body };
+  try {
+    const res = await fetch(`${API}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    });
+    const body = await res.json().catch(() => null);
+    return { status: res.status, body };
+  } catch (err: any) {
+    return { status: 0, body: null, error: err?.message };
+  }
 }
 
 /* --------------------------------------------------------------------------- boot API */
@@ -63,21 +78,49 @@ let scratchDir = "";
 let startedApi = false;
 
 async function bootApi() {
+  if (!API) {
+    // If not specified, probe if an existing dev API is already running with a live rail
+    try {
+      const probe = await fetch("http://127.0.0.1:3001/api/health", { signal: AbortSignal.timeout(1500) });
+      if (probe.ok) {
+        const body = (await probe.json()) as any;
+        if (body?.data?.paymentExecution === "lightning-rail") {
+          API = "http://127.0.0.1:3001";
+        }
+      }
+    } catch {}
+    if (!API) {
+      API = "http://127.0.0.1:3019";
+    }
+  }
+
   const health = await get("/api/health");
   if (health.status === 200) return; // already running: use it as-is
   scratchDir = mkdtempSync(join(tmpdir(), "satsloom-live-"));
   startedApi = true;
-  const env = { ...process.env, SATSLOOM_DATA_FILE: join(scratchDir, "store.json"), PORT: new URL(API).port } as NodeJS.ProcessEnv;
-  started = spawn(process.execPath, ["node_modules/tsx/dist/cli.mjs", "apps/api/src/server.ts"], {
+  const targetPort = new URL(API).port || "3019";
+  const env = { ...process.env, SATSLOOM_DATA_FILE: join(scratchDir, "store.json"), PORT: targetPort } as NodeJS.ProcessEnv;
+  const tsxCli = join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
+  const serverPath = join(process.cwd(), "apps", "api", "src", "server.ts");
+
+  let stderrLog = "";
+  started = spawn(process.execPath, [tsxCli, serverPath], {
     cwd: process.cwd(),
     env,
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
   });
+  started.stderr?.on("data", (chunk) => {
+    stderrLog += chunk.toString();
+  });
+  started.on("error", (err) => {
+    stderrLog += `\nProcess error: ${err.message}`;
+  });
+
   for (let i = 0; i < 40; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if ((await get("/api/health")).status === 200) return;
   }
-  fail("the API did not become ready");
+  fail(`the API did not become ready.${stderrLog ? ` Stderr output:\n${stderrLog}` : ""}`);
 }
 
 /* ------------------------------------------------------------------ verify it is live */
@@ -87,10 +130,20 @@ async function assertRailIsLive() {
   if (status !== 200) fail(`/api/health returned ${status}`);
   const data = (body as any)?.data;
   if (data?.paymentExecution !== "lightning-rail") {
-    fail(`the API is not on a Lightning rail (paymentExecution=${data?.paymentExecution}). ` +
-      `SATSLOOM_RAIL=${process.env.SATSLOOM_RAIL ?? "(unset)"} and railConfigError=${JSON.stringify(data?.railConfigError)}`);
+    fail(
+      `the API is not on a Lightning rail (paymentExecution=${data?.paymentExecution}). ` +
+      `SATSLOOM_RAIL=${process.env.SATSLOOM_RAIL ?? "(unset)"} and railConfigError=${JSON.stringify(data?.railConfigError)}.\n\n` +
+      `To run this live signet proof against an actual LND node, set:\n` +
+      `  export SATSLOOM_RAIL=lnd\n` +
+      `  export LND_REST_URL=https://127.0.0.1:8080\n` +
+      `  export LND_MACAROON_HEX=$(xxd -p <lnd-dir>/data/chain/bitcoin/signet/admin.macaroon | tr -d '\\n')\n` +
+      `  export LND_CA_CERT_PATH=<lnd-dir>/tls.cert  # or export LND_ALLOW_SELF_SIGNED=true\n` +
+      `  export SATSLOOM_LIGHTNING_NETWORK=signet\n` +
+      `  export PAYER_LNCLI_DIR=/path/to/second/lnd    # optional: automatic settlement\n` +
+      `  node scripts/live-signet-proof.mts [amountSats]`
+    );
   }
-  if (data?.railHealth?.reachable !== true) fail("the configured node is not reachable");
+  if (data?.railHealth?.reachable !== true) fail(`the configured node is not reachable: ${data?.railHealth?.detail ?? "unknown error"}`);
   console.log(`node:        ${data.railHealth.nodePubkey} @ height ${data.railHealth.blockHeight} (${data.railHealth.version})`);
   console.log(`rail:        ${data.rail.rail} on ${data.rail.network} — execution=${data.paymentExecution}`);
   if (data.rail.network !== "signet") console.log(`note:        rail network is ${data.rail.network}, not signet`);
@@ -177,14 +230,25 @@ function report(data: any) {
 
 /* ------------------------------------------------------------------------------ main */
 
-await bootApi();
 try {
-  await assertRailIsLive();
-  await issueAndSettle();
-} finally {
-  started?.kill();
-  if (scratchDir) {
-    try { rmSync(scratchDir, { recursive: true, force: true }); } catch {}
+  await bootApi();
+  try {
+    await assertRailIsLive();
+    await issueAndSettle();
+  } finally {
+    if (started) {
+      try { started.kill(); } catch {}
+    }
+    if (scratchDir) {
+      try { rmSync(scratchDir, { recursive: true, force: true }); } catch {}
+    }
+    if (startedApi) console.log("\n(stopped the API this script started)");
   }
-  if (startedApi) console.log("\n(stopped the API this script started)");
+} catch (err) {
+  if (err instanceof ScriptFailure) {
+    console.error(`\nFAIL: ${err.message}`);
+    process.exitCode = 1;
+  } else {
+    throw err;
+  }
 }

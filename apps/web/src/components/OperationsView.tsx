@@ -207,8 +207,8 @@ export function OperationsView({
 
             <div className="payout-field flex-grow">
               <label htmlFor="payout-dest">
-                <span>Destination label (not validated)</span>
-                <span className="field-type">No broadcast</span>
+                <span>{destination.trim().toLowerCase().startsWith("ln") ? "Lightning Invoice (Live Rail)" : "Destination (BOLT11 invoice or demo label)"}</span>
+                <span className="field-type">{destination.trim().toLowerCase().startsWith("ln") ? "Live Payment" : "Demo"}</span>
               </label>
               <input
                 id="payout-dest"
@@ -216,10 +216,14 @@ export function OperationsView({
                 className="form-input mono"
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
-                placeholder="e.g. demo-destination"
+                placeholder="Paste lntbs... invoice for live payment, or a label"
                 required
               />
-              <span className="field-subtext">Stored as text only; no address validation or Bitcoin transaction.</span>
+              <span className="field-subtext">
+                {destination.trim().toLowerCase().startsWith("ln")
+                  ? "BOLT11 invoice detected: will be paid over Lightning via the configured node."
+                  : "Paste a BOLT11 invoice for live payout, or enter a label to record a demo payout."}
+              </span>
             </div>
 
             <div className="payout-action-col">
@@ -227,11 +231,11 @@ export function OperationsView({
                 {busy ? (
                   <>
                     <span className="btn-spinner"></span>
-                    <span>Recording...</span>
+                    <span>{destination.trim().toLowerCase().startsWith("ln") ? "Sending payment..." : "Recording..."}</span>
                   </>
                 ) : (
                   <>
-                    <span>Create Demo Payout Record</span>
+                    <span>{destination.trim().toLowerCase().startsWith("ln") ? "⚡ Pay Over Lightning" : "Create Demo Payout Record"}</span>
                   </>
                 )}
               </button>
@@ -499,10 +503,14 @@ export function OperationsView({
           <div className="modal-content json-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-header-left">
-                <div className="modal-icon">📜</div>
+                <div className="modal-icon">{selectedItem?.verification === "preimage-sha256" ? "⚡" : "📜"}</div>
                 <div>
-                  <h3>Demo Record Details</h3>
-                  <p className="modal-subtitle">Application state only · not a cryptographic Bitcoin settlement record</p>
+                  <h3>{selectedItem?.verification === "preimage-sha256" ? "Verified Settlement Proof" : "Demo Record Details"}</h3>
+                  <p className="modal-subtitle">
+                    {selectedItem?.verification === "preimage-sha256"
+                      ? "Verified Bitcoin Lightning settlement · preimage-sha256 cryptographic proof"
+                      : "Application state only · not a cryptographic Bitcoin settlement record"}
+                  </p>
                 </div>
               </div>
               <button className="close-btn" onClick={() => setSelectedItem(null)}>✕</button>

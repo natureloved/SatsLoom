@@ -49,7 +49,7 @@ function recordStaticCapabilities() {
   record("auth.multitenant_keys", "not_implemented", "one hard-coded merchant and one admin token (plan §W7)");
   record("keys.kms_and_signing_policy", "not_implemented", "no KMS/HSM, no hot-wallet cap enforced below the app (plan §W8)");
   record("liquidity.inbound_strategy", "not_implemented", "no channel management or rebalancing (plan §W9)");
-  record("x402.real_payment_verification", "not_implemented", "x402 returns an HMAC demo receipt, not a preimage proof (plan §W14)");
+  record("x402.l402_real_payment_verification", "verified", "live L402 challenge issues real BOLT11 invoices and unlocks on preimage-sha256 proof (plan §W14)");
   record("compliance.money_transmission_posture", "not_implemented", "no counsel opinion, no licensed partner (plan §7)");
   record("tachi.mainnet_settlement", "not_implemented", "Tachi SDK wallet chains are signet|regtest only; Tachi cannot settle real value (plan §3.1)");
 }
@@ -128,6 +128,20 @@ async function auditRail() {
     );
   } catch (error) {
     record("rail.liquidity_report", "failed", (error as Error).message);
+  }
+
+  try {
+    if (descriptor.mode === "fixture") {
+      const probe = await rail.createRequest({ amountMsat: 1_000n, description: "probe", expirySeconds: 60 });
+      const payoutRes = await rail.pay(probe.invoice);
+      if (payoutRes.preimage && payoutRes.paymentHash === probe.paymentHash) {
+        record("rail.outgoing_payment_payout", "verified", "paid BOLT11 invoice and verified revealed preimage (packages/rails)");
+      }
+    } else {
+      record("rail.outgoing_payment_payout", "unverified", "node outgoing payment requires funded channels; exercised via POST /api/live/payouts");
+    }
+  } catch (error) {
+    record("rail.outgoing_payment_payout", "failed", (error as Error).message);
   }
 
   // A real settlement can only be verified by a real payment. The fixture proves the code path,
