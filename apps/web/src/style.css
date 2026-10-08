@@ -6867,74 +6867,354 @@ footer {
 
 .theme-toggle svg { display: block; }
 
+/* ============ LIGHT-MODE PROJECTION & THEME GROUNDING ============ */
+
 /* Light-mode grounding for the few decorative/hero pieces that assumed a dark field. */
 html[data-theme="light"] .noise { opacity: 0.03; }
 html[data-theme="light"] .warp { mix-blend-mode: multiply; }
 
-/* Light-mode grounding for the header. */
+/* Light-mode grounding for the landing page header. */
+html[data-theme="light"] header#hdr {
+  background: rgba(251, 247, 238, 0.94);
+  border-bottom-color: var(--line);
+}
 html[data-theme="light"] header#hdr.scrolled {
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 1px 0 var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom-color: var(--line);
+  box-shadow: 0 1px 12px rgba(60, 42, 12, 0.06);
+}
+html[data-theme="light"] .nav-links a {
+  color: #5C523D;
+}
+html[data-theme="light"] .nav-links a:hover {
+  color: #17130A;
+}
+html[data-theme="light"] .nav-cta-secondary {
+  border-color: rgba(147, 80, 0, 0.3);
+  color: #8A4600;
+}
+html[data-theme="light"] .nav-cta-secondary:hover {
+  background: rgba(147, 80, 0, 0.08);
+  border-color: #8A4600;
 }
 
-/* Dashboard copy of the toggle, docked to the console's top-right. */
-.theme-toggle.dash-theme {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 40;
-  background: var(--panel);
+/* ============ TOPBAR & INTEGRATED THEME TOGGLE ============ */
+.topbar-theme-toggle {
+  width: 39px;
+  height: 39px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.topbar-theme-toggle:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(247, 147, 26, 0.08);
+}
+html[data-theme="light"] .topbar-theme-toggle {
+  background: #FFFFFF;
+  border-color: var(--line);
+  color: #6B5F49;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+html[data-theme="light"] .topbar-theme-toggle:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: #FDF9F2;
 }
 
-/* ============ LIGHT-MODE CONSOLE FIXES ============ */
-
-/* The sidebar keeps its dark rail in light mode, so its text must stay light too — the palette
-   tokens that darken in light are exactly wrong inside it. */
+/* ============ DASHBOARD SIDEBAR (DARK RAIL IN BOTH THEMES) ============ */
 html[data-theme="light"] .sidebar {
-  color: #EFE7D3;
-}
-html[data-theme="light"] .sidebar .workspace-name,
-html[data-theme="light"] .sidebar .sidebar-label,
-html[data-theme="light"] .sidebar .profile-copy strong,
-html[data-theme="light"] .sidebar .nav-item.active {
+  background: #120E08;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   color: #EFE7D3;
 }
 html[data-theme="light"] .sidebar .brand,
-html[data-theme="light"] .sidebar .nav-item,
-html[data-theme="light"] .sidebar .nav-item.active,
-html[data-theme="light"] .sidebar .sidebar-label,
-html[data-theme="light"] .sidebar .workspace-text,
+html[data-theme="light"] .sidebar .brand-title {
+  color: #EFE7D3;
+}
+html[data-theme="light"] .sidebar .brand-subtitle {
+  color: #9A8F79;
+}
+html[data-theme="light"] .sidebar .brand-mark {
+  background: var(--amber);
+  color: #100C05;
+}
+html[data-theme="light"] .sidebar .workspace {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #EFE7D3;
+}
+html[data-theme="light"] .sidebar .workspace-label {
+  color: #B89A5A;
+}
+html[data-theme="light"] .sidebar .workspace-name {
+  color: #EFE7D3;
+}
+html[data-theme="light"] .sidebar .workspace-text {
+  color: #9A8F79;
+}
+html[data-theme="light"] .sidebar .workspace-subaddress code {
+  color: #B8AC95;
+}
+html[data-theme="light"] .sidebar .nav-title {
+  color: #8C8069;
+}
+html[data-theme="light"] .sidebar .nav-item {
+  color: #A79B7E;
+  border-color: transparent;
+}
+html[data-theme="light"] .sidebar .nav-item:hover {
+  color: #EFE7D3;
+  background: rgba(255, 255, 255, 0.05);
+}
+html[data-theme="light"] .sidebar .nav-item.active {
+  background: rgba(247, 147, 26, 0.16);
+  color: #FFB648;
+}
+html[data-theme="light"] .sidebar .nav-item svg {
+  color: inherit;
+}
+/* Ensure help-card never turns bright cream inside dark sidebar */
+html[data-theme="light"] .sidebar .help-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+html[data-theme="light"] .sidebar .help-card strong {
+  color: #EFE7D3;
+}
+html[data-theme="light"] .sidebar .help-card p {
+  color: #A79B7E;
+}
+html[data-theme="light"] .sidebar .help-card button {
+  color: #F7931A;
+}
+html[data-theme="light"] .sidebar .help-card button:hover {
+  color: #FFB648;
+}
+html[data-theme="light"] .sidebar .back-home-btn {
+  color: #A79B7E;
+}
+html[data-theme="light"] .sidebar .back-home-btn:hover {
+  color: #EFE7D3;
+  background: rgba(255, 255, 255, 0.05);
+}
+html[data-theme="light"] .sidebar .profile {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
 html[data-theme="light"] .sidebar .profile-copy strong {
   color: #EFE7D3;
 }
-html[data-theme="light"] .sidebar .brand-subtitle,
-html[data-theme="light"] .sidebar .nav-item:not(.active),
-html[data-theme="light"] .sidebar .workspace-label,
-html[data-theme="light"] .sidebar .profile-copy span,
-html[data-theme="light"] .sidebar .demo-limits,
-html[data-theme="light"] .sidebar .sidebar-foot-note {
-  color: #9A8F79;
+html[data-theme="light"] .sidebar .profile-copy span {
+  color: #8C8069;
 }
-html[data-theme="light"] .sidebar .nav-item.active {
-  background: rgba(247, 147, 26, 0.18);
-}
-html[data-theme="light"] .sidebar .brand-mark {
-  color: #F7C36B;
-}
-html[data-theme="light"] .donut-center span {
-  color: #5A5342;
-}
-html[data-theme="light"] .sidebar .nav-title,
-html[data-theme="light"] .sidebar code,
-html[data-theme="light"] .sidebar .nav-kicker,
-html[data-theme="light"] .sidebar .nav-item svg {
-  color: #B8AC95;
-}
-html[data-theme="light"] .avatar {
-  color: #4A2400;
-  border-color: rgba(178, 94, 0, 0.35);
+html[data-theme="light"] .sidebar .avatar {
+  background: #2E2211;
+  border: 1px solid #4A381F;
+  color: #F7931A;
 }
 html[data-theme="light"] .sidebar .degraded-badge,
 html[data-theme="light"] .sidebar .node-status-pill {
   color: #EFE7D3;
+}
+
+/* ============ DASHBOARD BALANCE CARD (WARM RADIANT LIGHT THEME) ============ */
+html[data-theme="light"] .balance-card {
+  background: linear-gradient(105deg, #FFFFFF 0%, #FAF5EC 55%, #F4ECE0 100%);
+  border: 1px solid #E2D7C2;
+  box-shadow: 0 4px 22px rgba(120, 80, 15, 0.07);
+}
+html[data-theme="light"] .balance-card:after {
+  border-color: rgba(147, 80, 0, 0.12);
+  box-shadow: 0 0 0 34px rgba(147, 80, 0, 0.02), 0 0 0 68px rgba(147, 80, 0, 0.01);
+}
+html[data-theme="light"] .balance-label {
+  color: #6E614A;
+}
+html[data-theme="light"] .balance-value {
+  color: #17130A;
+}
+html[data-theme="light"] .balance-value .currency-unit {
+  color: #935000;
+}
+html[data-theme="light"] .balance-usd {
+  color: #6E614A;
+}
+html[data-theme="light"] .balance-actions .secondary-btn {
+  background: #FFFFFF;
+  border-color: #DCCFB7;
+  color: #2E2516;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+html[data-theme="light"] .balance-actions .secondary-btn:hover {
+  background: #FDF9F2;
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+/* ============ DASHBOARD STAT CARDS & PANELS ============ */
+html[data-theme="light"] .stat-card,
+html[data-theme="light"] .panel {
+  background: #FFFFFF;
+  border-color: var(--line);
+  box-shadow: 0 2px 10px rgba(60, 42, 12, 0.04);
+}
+html[data-theme="light"] .stat-top {
+  color: #6B5F49;
+}
+html[data-theme="light"] .stat-icon {
+  background: rgba(147, 80, 0, 0.08);
+  color: var(--amber);
+}
+html[data-theme="light"] .stat-value {
+  color: #17130A;
+}
+html[data-theme="light"] .panel-title {
+  color: #17130A;
+}
+html[data-theme="light"] .panel-subtitle {
+  color: #6E614A;
+}
+html[data-theme="light"] .periods {
+  background: #F5EFE2;
+  border-color: var(--line);
+}
+html[data-theme="light"] .periods button {
+  color: #6E614A;
+}
+html[data-theme="light"] .periods button.active {
+  background: #FFFFFF;
+  color: #17130A;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+html[data-theme="light"] .chart-gridline {
+  stroke: #E8DFCB;
+}
+html[data-theme="light"] .chart-label {
+  fill: #7D7058;
+}
+html[data-theme="light"] .chart-dot {
+  fill: #FFFFFF;
+  stroke: var(--amber);
+}
+html[data-theme="light"] .donut {
+  background: #E8DFCB;
+}
+html[data-theme="light"] .donut:before {
+  background: #FFFFFF;
+}
+html[data-theme="light"] .donut-center strong {
+  color: #17130A;
+}
+html[data-theme="light"] .donut-center span {
+  color: #6E614A;
+}
+html[data-theme="light"] .asset-name {
+  color: #17130A;
+}
+html[data-theme="light"] .asset-mark {
+  background: #A89B82;
+}
+html[data-theme="light"] .asset-value {
+  color: #6E614A;
+}
+
+/* ============ UNIVERSAL BUTTONS & CONTROLS ============ */
+html[data-theme="light"] .secondary-btn,
+html[data-theme="light"] .btn-secondary {
+  background: #FFFFFF;
+  border-color: var(--line);
+  color: #2E2516;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+html[data-theme="light"] .secondary-btn:hover,
+html[data-theme="light"] .btn-secondary:hover {
+  background: #FDF9F2;
+  border-color: var(--amber);
+  color: var(--amber);
+}
+html[data-theme="light"] .node-status-btn {
+  background: #FFFFFF;
+  border-color: rgba(69, 110, 19, 0.35);
+  color: var(--settled);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+html[data-theme="light"] .primary-btn,
+html[data-theme="light"] .btn-primary {
+  color: #1A1206;
+  background: var(--amber-btn);
+  border-color: var(--amber-btn);
+  box-shadow: 0 2px 6px rgba(247, 147, 26, 0.25);
+}
+html[data-theme="light"] .primary-btn:hover,
+html[data-theme="light"] .btn-primary:hover {
+  background: #FFB648;
+  border-color: #FFB648;
+}
+
+/* ============ CARDS, TABLES & SUBVIEWS ============ */
+html[data-theme="light"] .treasury-card,
+html[data-theme="light"] .telemetry-card,
+html[data-theme="light"] .product-card,
+html[data-theme="light"] .shop-product-card,
+html[data-theme="light"] .flow-step-card,
+html[data-theme="light"] .console-panel,
+html[data-theme="light"] .payload-panel,
+html[data-theme="light"] .validators-list-section,
+html[data-theme="light"] .validator-card,
+html[data-theme="light"] .route-card {
+  background: #FFFFFF;
+  border-color: var(--line);
+  box-shadow: 0 2px 8px rgba(60, 42, 12, 0.04);
+}
+html[data-theme="light"] .product-card:hover,
+html[data-theme="light"] .shop-product-card:hover,
+html[data-theme="light"] .treasury-card:hover,
+html[data-theme="light"] .telemetry-card:hover {
+  border-color: var(--amber);
+  box-shadow: 0 8px 24px rgba(60, 42, 12, 0.08);
+}
+html[data-theme="light"] .p2tr-details-box,
+html[data-theme="light"] .drill-status-box,
+html[data-theme="light"] .ops-table-wrap,
+html[data-theme="light"] .ledger-table-wrap {
+  background: #FAF6ED;
+  border-color: var(--line);
+}
+html[data-theme="light"] .drill-console {
+  background: #FFFDF8;
+  border-color: var(--line);
+  color: #17130A;
+}
+html[data-theme="light"] .ledger-table th,
+html[data-theme="light"] .ops-table th {
+  background: #F5EFE2;
+  color: #6E614A;
+}
+html[data-theme="light"] .modal-content,
+html[data-theme="light"] .checkout-modal-card {
+  background: #FFFFFF;
+  border-color: var(--line);
+  box-shadow: 0 20px 50px rgba(30, 20, 5, 0.16);
+}
+html[data-theme="light"] .modal-backdrop,
+html[data-theme="light"] .terminal-modal-backdrop {
+  background: rgba(23, 19, 10, 0.5);
+  backdrop-filter: blur(8px);
+}
+html[data-theme="light"] .checkout-simulation-banner {
+  background: #F5EFE2;
+  border-color: var(--line);
+}
+html[data-theme="light"] .ecommerce-code-preview pre,
+html[data-theme="light"] .code-panel pre {
+  background: var(--code-bg);
+  border-color: var(--line);
+  color: #17130A;
 }

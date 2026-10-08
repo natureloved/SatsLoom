@@ -677,9 +677,10 @@ export function App() {
 
   if (currentView === "dashboard") {
     return (
-      <div className="dash-root">
-        <ThemeToggle theme={theme} onToggle={toggleTheme} className="dash-theme" />
+      <>
         <SatsLoomDashboard
+          theme={theme}
+          onToggleTheme={toggleTheme}
           overview={overview}
           transactions={transactions}
           refunds={refunds}
@@ -946,7 +947,7 @@ export function App() {
             isSimulated={isSimulated}
           />
         )}
-      </div>
+      </>
     );
   }
 

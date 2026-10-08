@@ -4,6 +4,7 @@ import { OperationsView } from "./OperationsView";
 import { X402Sandbox } from "./X402Sandbox";
 import { SatsShop } from "./SatsShop";
 import { RouteVisualizer } from "./RouteVisualizer";
+import { ThemeToggle } from "./ThemeProvider";
 
 interface Props {
   overview?: any;
@@ -30,6 +31,8 @@ interface Props {
   onBuyShopProduct?: (product: any) => Promise<void>;
   vaultAddress?: string;
   busy?: boolean;
+  theme?: "dark" | "light";
+  onToggleTheme?: () => void;
 }
 
 export function SatsLoomDashboard({
@@ -57,6 +60,8 @@ export function SatsLoomDashboard({
   onBuyShopProduct,
   vaultAddress = "",
   busy = false,
+  theme,
+  onToggleTheme,
 }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeNavItem, setActiveNavItem] = useState("dashboard");
@@ -469,6 +474,10 @@ export function SatsLoomDashboard({
                 </svg>
                 <span>+ Issue Invoice</span>
               </button>
+
+              {theme && onToggleTheme && (
+                <ThemeToggle theme={theme} onToggle={onToggleTheme} className="topbar-theme-toggle" />
+              )}
             </div>
           </header>
 
