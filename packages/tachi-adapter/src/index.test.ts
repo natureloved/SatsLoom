@@ -163,3 +163,72 @@ describe("supported network list", () => {
     expect([...SUPPORTED_TACHI_NETWORKS]).toEqual(["signet", "regtest"]);
   });
 });
+
+describe("scan-lock contention", () => {
+  // The public daemon serialises `scantxoutset` globally, so a neighbour's scan
+  // surfaces as rpc -8 "Scan already in progress". Retrying that is correct;
+  // retrying anything else is not, so the boundary is worth pinning.
+  const adapter = () =>
+    new TachiSdkAdapter({
+      daemonRpcUrl: "https://rpc-signet.tachibtc.com",
+      bitcoinRpcUrl: "https://rpc-signet.tachibtc.com",
+      bitcoinFundingWallet: "dev",
+      network: "signet",
+      explorerUrl: "https://signet.tachibtcscan.com",
+      faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+      timeoutMs: 1_000,
+    } satisfies TachiAdapterConfig);
+
+  const retry = (adapter: TachiSdkAdapter) =>
+    (adapter as unknown as {
+      withScanLockRetry: <T>(op: () => Promise<T>, attempts?: number, sleep?: (ms: number) => Promise<void>) => Promise<T>;
+    }).withScanLockRetry;
+
+  // The real backoff waits minutes; tests must not.
+  const noSleep = async () => {};
+
+  it("retries the scan lock and eventually succeeds", async () => {
+    let calls = 0;
+    const result = await retry(adapter())(
+      async () => {
+        calls += 1;
+        if (calls < 3) throw new Error("RPC scantxoutset failed: bitcoin rpc error -8: Scan already in progress");
+        return "ok";
+      },
+      5,
+      noSleep,
+    );
+    expect(result).toBe("ok");
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after the attempt budget and reports the lock error", async () => {
+    let calls = 0;
+    await expect(
+      retry(adapter())(
+        async () => {
+          calls += 1;
+          throw new Error("RPC scantxoutset failed: bitcoin rpc error -8: Scan already in progress");
+        },
+        3,
+        noSleep,
+      ),
+    ).rejects.toThrow(/scan already in progress/i);
+    expect(calls).toBe(3);
+  });
+
+  it("does not retry an unrelated failure", async () => {
+    let calls = 0;
+    await expect(
+      retry(adapter())(
+        async () => {
+          calls += 1;
+          throw new Error("Insufficient funds: available 0 sats");
+        },
+        5,
+        noSleep,
+      ),
+    ).rejects.toThrow(/insufficient funds/i);
+    expect(calls).toBe(1);
+  });
+});

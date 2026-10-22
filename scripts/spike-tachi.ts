@@ -70,8 +70,16 @@ async function main() {
     }, null, 2));
     if (process.env.TACHI_SPIKE_ENABLE_DEPOSIT === "true") {
       const amountSats = BigInt(process.env.TACHI_SPIKE_DEPOSIT_SATS ?? "100000");
-      spikeStage = "deposit-discovery";
-      const existing = await adapter.findConfirmedVaultDeposit(vault.id, amountSats);
+      // Discovery is an optimisation, not a precondition. The public daemon's
+      // `scantxoutset` holds a global lock, so a concurrent user's scan makes
+      // this fail with "Scan already in progress" — and a fresh vault has
+      // nothing to discover anyway. A failure here must not abort funding.
+      let existing: { txid: string; amountSats: bigint } | null = null;
+      try {
+        existing = await adapter.findConfirmedVaultDeposit(vault.id, amountSats);
+      } catch (error) {
+        console.error(`note: deposit discovery skipped — ${describeError(error)}`);
+      }
       let result: { txid: string; amountSats: bigint };
       if (existing) {
         result = existing;

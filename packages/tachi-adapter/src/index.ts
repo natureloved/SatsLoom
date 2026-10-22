@@ -245,7 +245,12 @@ export class TachiSdkAdapter implements TachiAdapter {
     const vault = this.vaults.get(vaultId);
     const context = this.depositContexts.get(vaultId);
     if (!vault || !context) throw new Error("Unknown vault; create it before depositing");
-    await context.wallet.sync();
+    // The public signet daemon holds a global `scantxoutset` lock, so any other
+    // user's in-flight scan makes this fail with "Scan already in progress"
+    // (rpc -8). The wallet's own sync retries that a few times, which is not
+    // enough on a shared public endpoint — retry here too, with backoff, so a
+    // neighbour's scan does not fail our deposit.
+    await this.withScanLockRetry(() => context.wallet.sync());
     const result = await depositTaurusVault({
       vault,
       userWallet: context.wallet,
@@ -257,21 +262,49 @@ export class TachiSdkAdapter implements TachiAdapter {
     return { txid: result.txid, amountSats: result.amountSats };
   }
 
+  /**
+   * Runs `operation`, retrying only the "scan already in progress" failure the
+   * public daemon raises while another caller's `scantxoutset` holds the global
+   * lock. Every other error is rethrown unchanged: a wrong signature or an
+   * empty wallet must not be retried into looking like a lock problem.
+   */
+  private async withScanLockRetry<T>(
+    operation: () => Promise<T>,
+    attempts = 8,
+    sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/scan already in progress/i.test(message)) throw error;
+        lastError = error;
+        // 2s, 4s, 8s … capped at 30s; a full scan of signet takes about a minute.
+        await sleep(Math.min(2_000 * 2 ** attempt, 30_000));
+      }
+    }
+    throw lastError;
+  }
+
   async findConfirmedVaultDeposit(vaultId: string, minimumSats: bigint) {
     const vault = this.vaults.get(vaultId);
     if (!vault) throw new Error("Unknown vault; create it before querying deposits");
     let unspents: Array<{ txid: string; amount: number; confirmations?: number }> = [];
     try {
-      const root = new BitcoinCoreRpcClient({
-        url: this.config.bitcoinRpcUrl,
-        username: this.config.bitcoinRpcUsername,
-        password: this.config.bitcoinRpcPassword,
+      unspents = await this.withScanLockRetry(async () => {
+        const root = new BitcoinCoreRpcClient({
+          url: this.config.bitcoinRpcUrl,
+          username: this.config.bitcoinRpcUsername,
+          password: this.config.bitcoinRpcPassword,
+        });
+        const scan = await root.call<{
+          success: boolean;
+          unspents: Array<{ txid: string; amount: number; confirmations?: number }>;
+        }>("scantxoutset", ["start", [{ desc: `addr(${vault.p2tr.address})` }]]);
+        return scan.unspents ?? [];
       });
-      const scan = await root.call<{
-        success: boolean;
-        unspents: Array<{ txid: string; amount: number; confirmations?: number }>;
-      }>("scantxoutset", ["start", [{ desc: `addr(${vault.p2tr.address})` }]]);
-      unspents = scan.unspents ?? [];
     } catch (localError) {
       // Fallback to Tachi daemon's proxied Bitcoin RPC
       try {
