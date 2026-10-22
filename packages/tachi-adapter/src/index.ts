@@ -19,7 +19,14 @@ import {
   verifyVaultP2tr,
   type Vault,
 } from "@tachibtc/taurus-vault-core";
-import { BitcoinCoreRpcClient, Keystore, WalletAggregator, getNetwork, listNetworks } from "@tachibtc/taurus-wallet-aggregator";
+import {
+  BitcoinCoreRpcClient,
+  Keystore,
+  SAFE_DUST_THRESHOLD_SATS,
+  WalletAggregator,
+  getNetwork,
+  listNetworks,
+} from "@tachibtc/taurus-wallet-aggregator";
 import type { DaemonStatus, Validator, VaultSummary, VerificationResult } from "@satsloom/shared";
 
 /**
@@ -271,16 +278,15 @@ export class TachiSdkAdapter implements TachiAdapter {
     // and failing with a confusing "insufficient funds" against a wallet that
     // plainly has funds helps nobody.
     //
-    // The fee has to come out of that balance, not on top of it: the SDK's coin
-    // selection needs amount + fee from the wallet, so clamping to the raw
-    // balance just moves the failure from "insufficient funds" to "insufficient
-    // funds by the fee". Reserve the fee for the exact transaction the SDK will
-    // build — one P2WPKH input, a vault output and a P2WPKH change output.
+    // The fee has to come out of that balance, not on top of it. Worse, the
+    // SDK's coin selection will not build a change output below its 1000-sat
+    // dust floor — it only accepts a change-less spend when the inputs happen
+    // to cover amount + the smaller no-change fee exactly. So the amount that
+    // actually lands has to leave room for the fee *and* a spendable change
+    // output, or the selection fails even though the balance looks sufficient.
     const spendable = context.wallet.balance?.confirmed ?? 0n;
-    const estimatedFeeSats = BigInt(
-      Math.ceil((10.5 + 68 + 31 + 31) * this.config.depositFeeRateSatVb),
-    );
-    const effectiveAmount = amountSats > spendable - estimatedFeeSats ? spendable - estimatedFeeSats : amountSats;
+    const estimatedFeeSats = BigInt(Math.ceil((10.5 + 68 + 31 + 31) * this.config.depositFeeRateSatVb));
+    const effectiveAmount = amountSats > spendable ? spendable - estimatedFeeSats - SAFE_DUST_THRESHOLD_SATS : amountSats;
 
     const result = await depositTaurusVault({
       vault,
