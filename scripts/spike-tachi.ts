@@ -56,6 +56,9 @@ async function main() {
   let unilateralExitCsvBlocks: number | undefined;
   let spikeStage = "vault";
   let vaultError: string | undefined;
+  // The amount that actually reached the vault, which is not always the amount
+  // requested: a faucet pays a fixed sum, so the deposit is clamped to it.
+  let depositSats: bigint | undefined;
   try {
     const mnemonic = process.env.TACHI_TEST_MNEMONIC?.trim() || generateMnemonic();
     const vault = await adapter.createVault({ mnemonic });
@@ -100,11 +103,17 @@ async function main() {
         });
         spikeStage = "deposit-to-vault";
         result = await adapter.depositToVault(vault.id, amountSats);
+        // The faucet pays a fixed amount, so the deposit may land smaller than
+        // requested (depositToVault clamps to the spendable balance). Register
+        // the amount that actually landed, not the one we asked for, or the
+        // ledger deposit and the vault registration disagree.
+        depositSats = result.amountSats;
       } else {
         spikeStage = "funding-wallet";
         await adapter.prepareLocalFunding(vault.id, amountSats + 25_000n);
         spikeStage = "deposit-to-vault";
         result = await adapter.depositToVault(vault.id, amountSats);
+        depositSats = result.amountSats;
         spikeStage = "deposit-confirmation";
         await adapter.mineLocalBlocks(1);
       }
@@ -112,7 +121,7 @@ async function main() {
       depositTxid = result.txid;
       spikeStage = "vtxo-registration";
       try {
-        const registered = await adapter.registerDeposit(vault.id, amountSats);
+        const registered = await adapter.registerDeposit(vault.id, depositSats ?? amountSats);
         vtxoRegistration = true;
         vtxoQuery = (registered.vtxo as { id?: string })?.id === registered.vtxoId;
         vtxoId = registered.vtxoId;
@@ -151,6 +160,7 @@ async function main() {
     unilateralExit,
     overallMode: "degraded",
     ...(faucetTxid ? { faucetTxid } : {}),
+    ...(depositSats !== undefined ? { depositSats: depositSats.toString() } : {}),
     ...(depositTxid ? { depositTxid } : {}),
     ...(vtxoId ? { vtxoId } : {}),
     ...(vtxoFeeSats !== undefined ? { vtxoFeeSats: vtxoFeeSats.toString() } : {}),

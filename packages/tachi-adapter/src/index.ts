@@ -251,11 +251,21 @@ export class TachiSdkAdapter implements TachiAdapter {
     // enough on a shared public endpoint — retry here too, with backoff, so a
     // neighbour's scan does not fail our deposit.
     await this.withScanLockRetry(() => context.wallet.sync());
+
+    // A faucet pays a fixed amount, so the requested deposit can easily exceed
+    // what the wallet holds. Depositing the whole spendable balance is the
+    // useful interpretation here: the caller asked for "as much as we have",
+    // and failing with a confusing "insufficient funds" against a wallet that
+    // plainly has funds helps nobody. Callers that need an exact figure get one
+    // by passing an amount the wallet can cover.
+    const spendable = context.wallet.balance?.confirmed ?? 0n;
+    const effectiveAmount = amountSats > spendable ? spendable : amountSats;
+
     const result = await depositTaurusVault({
       vault,
       userWallet: context.wallet,
       rpc: context.rpc,
-      amountSats,
+      amountSats: effectiveAmount,
       feeRateSatVb: 2,
       maxFeeRateSatVb: 10,
     });
