@@ -104,3 +104,28 @@ On signet there is no local bitcoind wallet. Per the skill's always-on rules:
 Signet coins have no value. Any UI/API that reports the Tachi rail as "live" must
 label it as signet test coins, the same way the Lightning rail already does.
 
+## Live end-to-end proof (2026-10-23, signet)
+
+One spike run, every stage verified against the network rather than the app's own
+read path:
+
+| Stage | Result |
+|---|---|
+| daemon | reachable on `tachi-signet-1`, 7 validators |
+| vault | `tb1p06cpczz8g49yg8nfssf55k4p2095gxl5rvg9rp0svv8z8zckp4lq50edft`, 1008-block CSV |
+| faucet | tx `a79aca36…` confirmed at block 327,537, 50,000 sats |
+| deposit | tx `054faa2a…` confirmed at block 327,538, 48,719 sats into the vault P2TR |
+| ledger VTXO | `d9722386743afb5d950301674679fcfae9dbc1fd9672dd14ace558ff40c81f3b`, `amount: 48719`, `spent: false` |
+| user PSBT signing | true (cooperative leaf) |
+| unilateral exit | true, finalized, 1008 CSV blocks |
+
+The 48,719 rather than 100,000 is not a shortfall: the faucet pays a fixed
+50,000 sats, and the deposit is clamped to what the wallet can actually spend
+after the fee and a spendable change output. See the fee/dust reserve in
+`depositToVault`.
+
+What is still **not** demonstrated: `kdhtCooperativeSigning` and `vtxoTransfer`
+both report `unavailable`. The cooperative leaf needs 5-of-7 validator
+signatures, which requires the quorum to cosign — a transfer was signed by the
+user and verified, but not co-signed and broadcast by the validator set. That is
+reported as unavailable rather than claimed.
