@@ -267,10 +267,15 @@ export class TachiSdkAdapter implements TachiAdapter {
    * public daemon raises while another caller's `scantxoutset` holds the global
    * lock. Every other error is rethrown unchanged: a wrong signature or an
    * empty wallet must not be retried into looking like a lock problem.
+   *
+   * The budget is deliberately generous. The public signet daemon is shared, and
+   * a live run showed the lock being held more or less continuously by other
+   * callers — 8 attempts with a 30s ceiling (~4 minutes of waiting) cleared it,
+   * and a tighter budget failed a deposit that was otherwise ready to go.
    */
   private async withScanLockRetry<T>(
     operation: () => Promise<T>,
-    attempts = 8,
+    attempts = 20,
     sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   ): Promise<T> {
     let lastError: unknown;
