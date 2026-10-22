@@ -73,6 +73,8 @@ export type TachiAdapterConfig = {
   network: TachiNetwork;
   explorerUrl: string;
   faucetUrl: string;
+  /** Fee rate the adapter asks the SDK to build a vault deposit at. */
+  depositFeeRateSatVb: number;
   timeoutMs: number;
 };
 
@@ -82,6 +84,16 @@ function requireHttpUrl(value: string, label: string): string {
     throw new Error(`${label} must use http or https`);
   }
   return parsed.toString().replace(/\/$/, "");
+}
+
+/** A fee rate must be a positive number; a typo here silently misprices a deposit. */
+function parseFeeRate(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Fee rate must be a positive number, got "${value}"`);
+  }
+  return parsed;
 }
 
 export function loadTachiConfig(): TachiAdapterConfig {
@@ -108,6 +120,7 @@ export function loadTachiConfig(): TachiAdapterConfig {
     network,
     explorerUrl: requireHttpUrl(process.env.TACHI_EXPLORER_URL ?? defaults.explorerUrl, "TACHI_EXPLORER_URL"),
     faucetUrl: requireHttpUrl(process.env.TACHI_FAUCET_URL ?? defaults.faucetUrl, "TACHI_FAUCET_URL"),
+    depositFeeRateSatVb: parseFeeRate(process.env.TACHI_DEPOSIT_FEE_RATE_SAT_VB, 2),
     timeoutMs: Number(process.env.TACHI_RPC_TIMEOUT_MS ?? 30_000),
   };
 }
@@ -256,17 +269,25 @@ export class TachiSdkAdapter implements TachiAdapter {
     // what the wallet holds. Depositing the whole spendable balance is the
     // useful interpretation here: the caller asked for "as much as we have",
     // and failing with a confusing "insufficient funds" against a wallet that
-    // plainly has funds helps nobody. Callers that need an exact figure get one
-    // by passing an amount the wallet can cover.
+    // plainly has funds helps nobody.
+    //
+    // The fee has to come out of that balance, not on top of it: the SDK's coin
+    // selection needs amount + fee from the wallet, so clamping to the raw
+    // balance just moves the failure from "insufficient funds" to "insufficient
+    // funds by the fee". Reserve the fee for the exact transaction the SDK will
+    // build — one P2WPKH input, a vault output and a P2WPKH change output.
     const spendable = context.wallet.balance?.confirmed ?? 0n;
-    const effectiveAmount = amountSats > spendable ? spendable : amountSats;
+    const estimatedFeeSats = BigInt(
+      Math.ceil((10.5 + 68 + 31 + 31) * this.config.depositFeeRateSatVb),
+    );
+    const effectiveAmount = amountSats > spendable - estimatedFeeSats ? spendable - estimatedFeeSats : amountSats;
 
     const result = await depositTaurusVault({
       vault,
       userWallet: context.wallet,
       rpc: context.rpc,
       amountSats: effectiveAmount,
-      feeRateSatVb: 2,
+      feeRateSatVb: this.config.depositFeeRateSatVb,
       maxFeeRateSatVb: 10,
     });
     return { txid: result.txid, amountSats: result.amountSats };

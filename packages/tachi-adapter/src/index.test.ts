@@ -71,6 +71,18 @@ describe("tachi network selection", () => {
     withEnv({ TACHI_DAEMON_RPC_URL: "ftp://daemon.example.com" });
     expect(() => loadTachiConfig()).toThrow(/must use http or https/i);
   });
+
+  it("rejects a fee rate that is not a positive number", () => {
+    withEnv({ TACHI_DEPOSIT_FEE_RATE_SAT_VB: "0" });
+    expect(() => loadTachiConfig()).toThrow(/fee rate must be a positive number/i);
+    withEnv({ TACHI_DEPOSIT_FEE_RATE_SAT_VB: "abc" });
+    expect(() => loadTachiConfig()).toThrow(/fee rate must be a positive number/i);
+  });
+
+  it("defaults the deposit fee rate to a sane 2 sat/vB", () => {
+    withEnv({});
+    expect(loadTachiConfig().depositFeeRateSatVb).toBe(2);
+  });
 });
 
 describe("adapter construction", () => {
@@ -82,6 +94,7 @@ describe("adapter construction", () => {
       network: "signet",
       explorerUrl: "https://signet.tachibtcscan.com",
       faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+      depositFeeRateSatVb: 2,
       timeoutMs: 1_000,
     } satisfies TachiAdapterConfig);
     expect(adapter.network).toBe("signet");
@@ -96,6 +109,7 @@ describe("adapter construction", () => {
       network: "regtest",
       explorerUrl: "https://regtest.tachibtcscan.com",
       faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+      depositFeeRateSatVb: 2,
       timeoutMs: 1_000,
     } satisfies TachiAdapterConfig);
     expect(adapter.network).toBe("regtest");
@@ -128,6 +142,7 @@ describe("regtest-only operations are guarded", () => {
       network: "signet",
       explorerUrl: "https://signet.tachibtcscan.com",
       faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+      depositFeeRateSatVb: 2,
       timeoutMs: 1_000,
     } satisfies TachiAdapterConfig);
 
@@ -147,6 +162,7 @@ describe("regtest-only operations are guarded", () => {
       network: "regtest",
       explorerUrl: "https://regtest.tachibtcscan.com",
       faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+      depositFeeRateSatVb: 2,
       timeoutMs: 1_000,
     } satisfies TachiAdapterConfig);
     await expect(adapter.waitForSignetDepositConfirmation("ab".repeat(32))).rejects.toThrow(/signet-only/i);
@@ -176,6 +192,7 @@ describe("scan-lock contention", () => {
       network: "signet",
       explorerUrl: "https://signet.tachibtcscan.com",
       faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+      depositFeeRateSatVb: 2,
       timeoutMs: 1_000,
     } satisfies TachiAdapterConfig);
 
