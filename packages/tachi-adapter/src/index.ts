@@ -19,8 +19,50 @@ import {
   verifyVaultP2tr,
   type Vault,
 } from "@tachibtc/taurus-vault-core";
-import { BitcoinCoreRpcClient, Keystore, WalletAggregator, getNetwork } from "@tachibtc/taurus-wallet-aggregator";
+import { BitcoinCoreRpcClient, Keystore, WalletAggregator, getNetwork, listNetworks } from "@tachibtc/taurus-wallet-aggregator";
 import type { DaemonStatus, Validator, VaultSummary, VerificationResult } from "@satsloom/shared";
+
+/**
+ * Chains the wallet aggregator actually registers. The vault SDK's own
+ * `VaultNetworkName` is wider than this (it also names mainnet/testnet for
+ * address encoding), but a vault can only be *funded* through a wallet, and a
+ * wallet only exists on these two chains. Refusing anything else here is the
+ * honest boundary: asking for mainnet would produce an address that no
+ * supported wallet could ever pay into.
+ */
+export const SUPPORTED_TACHI_NETWORKS = ["signet", "regtest"] as const;
+export type TachiNetwork = (typeof SUPPORTED_TACHI_NETWORKS)[number];
+
+function isLoopback(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+export function isSupportedTachiNetwork(value: string): value is TachiNetwork {
+  return (SUPPORTED_TACHI_NETWORKS as readonly string[]).includes(value);
+}
+
+/** Per-chain defaults, so the network choice and the endpoints cannot drift apart. */
+const NETWORK_DEFAULTS: Record<TachiNetwork, { daemonRpcUrl: string; explorerUrl: string; faucetUrl: string }> = {
+  signet: {
+    daemonRpcUrl: "https://rpc-signet.tachibtc.com",
+    explorerUrl: "https://signet.tachibtcscan.com",
+    // Public, no-auth Bitcoin signet faucet. Tachi runs on the same chain, so a
+    // wallet funded here can pay a Tachi vault's P2TR output. The Tachi-hosted
+    // faucet (https://faucet.tachibtc.com) also exists but requires GitHub/X
+    // sign-in, so it cannot be driven from a script.
+    faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+  },
+  regtest: {
+    daemonRpcUrl: "https://rpc-regtest.tachibtc.com",
+    explorerUrl: "https://regtest.tachibtcscan.com",
+    faucetUrl: "https://faucet.rgbmap.org/v1/faucet",
+  },
+};
 
 export type TachiAdapterConfig = {
   daemonRpcUrl: string;
@@ -28,26 +70,44 @@ export type TachiAdapterConfig = {
   bitcoinRpcUsername?: string;
   bitcoinRpcPassword?: string;
   bitcoinFundingWallet: string;
-  network: "regtest";
+  network: TachiNetwork;
   explorerUrl: string;
+  faucetUrl: string;
   timeoutMs: number;
 };
 
-export function loadTachiConfig(): TachiAdapterConfig {
-  const daemonRpcUrl = process.env.TACHI_DAEMON_RPC_URL ?? "https://rpc-regtest.tachibtc.com";
-  const bitcoinRpcUrl = process.env.BITCOIN_RPC_URL ?? daemonRpcUrl;
-  const parsed = new URL(daemonRpcUrl);
+function requireHttpUrl(value: string, label: string): string {
+  const parsed = new URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("TACHI_DAEMON_RPC_URL must use http or https");
+    throw new Error(`${label} must use http or https`);
   }
+  return parsed.toString().replace(/\/$/, "");
+}
+
+export function loadTachiConfig(): TachiAdapterConfig {
+  const networkRaw = process.env.TACHI_NETWORK?.trim();
+  if (networkRaw && !isSupportedTachiNetwork(networkRaw)) {
+    throw new Error(
+      `TACHI_NETWORK="${networkRaw}" is not a supported Tachi wallet chain. ` +
+        `Supported: ${SUPPORTED_TACHI_NETWORKS.join(", ")} (the wallet aggregator registers only these).`,
+    );
+  }
+  // Signet is the default: it is the publicly demonstrable chain, and the SDK's
+  // own DEFAULT_WALLET_NETWORK is already SIGNET.
+  const network: TachiNetwork = networkRaw ?? "signet";
+  const defaults = NETWORK_DEFAULTS[network];
+
+  const daemonRpcUrl = requireHttpUrl(process.env.TACHI_DAEMON_RPC_URL ?? defaults.daemonRpcUrl, "TACHI_DAEMON_RPC_URL");
+  const bitcoinRpcUrl = requireHttpUrl(process.env.BITCOIN_RPC_URL ?? daemonRpcUrl, "BITCOIN_RPC_URL");
   return {
-    daemonRpcUrl: parsed.toString().replace(/\/$/, ""),
-    bitcoinRpcUrl: new URL(bitcoinRpcUrl).toString().replace(/\/$/, ""),
+    daemonRpcUrl,
+    bitcoinRpcUrl,
     bitcoinRpcUsername: process.env.BITCOIN_RPC_USERNAME,
     bitcoinRpcPassword: process.env.BITCOIN_RPC_PASSWORD,
     bitcoinFundingWallet: process.env.BITCOIN_FUNDING_WALLET ?? "dev",
-    network: "regtest",
-    explorerUrl: (process.env.TACHI_EXPLORER_URL ?? "https://regtest.tachibtcscan.com").replace(/\/$/, ""),
+    network,
+    explorerUrl: requireHttpUrl(process.env.TACHI_EXPLORER_URL ?? defaults.explorerUrl, "TACHI_EXPLORER_URL"),
+    faucetUrl: requireHttpUrl(process.env.TACHI_FAUCET_URL ?? defaults.faucetUrl, "TACHI_FAUCET_URL"),
     timeoutMs: Number(process.env.TACHI_RPC_TIMEOUT_MS ?? 30_000),
   };
 }
@@ -62,8 +122,20 @@ export interface TachiAdapter {
   registerDeposit(vaultId: string, amountSats: bigint): Promise<{ broadcastHash: string; vtxoId: string; vtxo: unknown; feeSats: bigint }>;
   buildAndSignUserTransfer(vaultId: string, vtxoId: string, fundingTxid: string): Promise<{ signed: boolean; feeSats: bigint }>;
   buildAndSignUnilateralExit(vaultId: string, fundingTxid: string): Promise<{ signed: boolean; finalized: boolean; feeSats: bigint; csvBlocks: number }>;
-  prepareRegtestFunding(vaultId: string, minimumSats: bigint): Promise<{ funded: boolean; txid?: string }>;
-  mineRegtestBlocks(count: number): Promise<void>;
+  /** Regtest only: sends from a local bitcoind wallet and mines a block. */
+  prepareLocalFunding(vaultId: string, minimumSats: bigint): Promise<{ funded: boolean; txid?: string }>;
+  mineLocalBlocks(count: number): Promise<void>;
+  /**
+   * Signet funding: claims test coins from the public faucet into the vault's
+   * P2WPKH wallet. Returns the faucet txid, or null when the faucet declines.
+   */
+  claimFaucetFunds(vaultId: string, amountBtc: number): Promise<{ txid: string; sats: bigint } | null>;
+  /** True when the adapter's network can be funded from a public faucet. */
+  readonly faucetAvailable: boolean;
+  /** Chain this adapter is bound to. */
+  readonly network: TachiNetwork;
+  /** Waits for a public-chain deposit to reach `minConfirmations`. */
+  waitForSignetDepositConfirmation(txid: string, minConfirmations?: number): Promise<void>;
   getExplorerUrl(txid: string): string;
 }
 
@@ -76,6 +148,15 @@ export class TachiSdkAdapter implements TachiAdapter {
 
   constructor(config = loadTachiConfig()) {
     this.config = config;
+    // A chain the wallet aggregator has not registered cannot fund a vault, so
+    // fail here rather than at the first deposit.
+    const registered = listNetworks();
+    if (!registered.includes(config.network)) {
+      throw new Error(
+        `Tachi network "${config.network}" is not registered by the wallet aggregator (registered: ${registered.join(", ")}). ` +
+          `Supported: ${SUPPORTED_TACHI_NETWORKS.join(", ")}.`,
+      );
+    }
     this.client = new TachiClient({ baseUrl: config.daemonRpcUrl, timeoutMs: config.timeoutMs });
   }
 
@@ -120,14 +201,25 @@ export class TachiSdkAdapter implements TachiAdapter {
     const userWallet: any = aggregator.addAccount({ addressType: "p2wpkh" });
     const keystore = Keystore.fromMnemonic(input.mnemonic, "", getNetwork(this.config.network), "p2wpkh", 0);
     const userSigner = keystore.signerFor(false, 0);
+    // Derive the quorum from the live daemon rather than a hard-coded set. The
+    // `validators` fetch is chain-bound: the daemon must advertise a chain id
+    // carrying this network as a token, or the fetch fails, so a vault can never
+    // be derived from a foreign-network quorum. Passing `nodePubkeys` as well
+    // would bypass that guard (and the SDK rejects both together anyway).
     const validatorResponse = await this.client.getValidators();
-    const nodePubkeys = validatorResponse.validators.map((validator) => validator.pub_key_hex).filter(Boolean);
-    if (nodePubkeys.length === 0) throw new Error("Daemon returned an empty validator set");
+    const nodePubkeyCount = validatorResponse.validators.filter((validator) => validator.pub_key_hex).length;
+    if (nodePubkeyCount === 0) throw new Error("Daemon returned an empty validator set");
     const vault = await createTaurusVault({
       network: this.config.network,
       userWallet,
-      nodePubkeys,
-      threshold: Math.min(5, nodePubkeys.length),
+      threshold: Math.min(5, nodePubkeyCount),
+      validators: {
+        endpoint: `${this.config.daemonRpcUrl}/tachi_validators`,
+        expectedChainId: this.config.network,
+        nodeInfoBaseUrl: this.config.daemonRpcUrl,
+        timeoutMs: this.config.timeoutMs,
+        allowInsecureHttp: this.config.bitcoinRpcUrl.startsWith("http://") && isLoopback(this.config.daemonRpcUrl),
+      },
     });
     const id = vault.p2tr.address;
     this.vaults.set(id, vault);
@@ -354,7 +446,13 @@ export class TachiSdkAdapter implements TachiAdapter {
     return { signed: true, finalized: true, feeSats, csvBlocks: vault.p2tr.exitLeaf.csvBlocks };
   }
 
-  async prepareRegtestFunding(vaultId: string, minimumSats: bigint) {
+  async prepareLocalFunding(vaultId: string, minimumSats: bigint) {
+    if (this.config.network !== "regtest") {
+      throw new Error(
+        `prepareLocalFunding needs a local bitcoind wallet and is regtest-only; this adapter runs on ${this.config.network}. ` +
+          `Fund the wallet from the faucet (https://faucet.tachibtc.com) instead.`,
+      );
+    }
     const context = this.depositContexts.get(vaultId);
     if (!context) throw new Error("Unknown vault; create it before funding");
     await context.wallet.sync();
@@ -362,16 +460,122 @@ export class TachiSdkAdapter implements TachiAdapter {
     const fundingRpc = await this.ensureFundingWallet();
     const address = context.wallet.receiveAddress;
     const txid = await fundingRpc.call<string>("sendtoaddress", [address, Number(minimumSats) / 100_000_000]);
-    await this.mineRegtestBlocks(1);
+    await this.mineLocalBlocks(1);
     await context.wallet.sync();
     return { funded: true, txid };
   }
 
-  async mineRegtestBlocks(count: number) {
+  async mineLocalBlocks(count: number) {
+    if (this.config.network !== "regtest") {
+      throw new Error(
+        `mineLocalBlocks is regtest-only; signet blocks are produced by the public network (~10 min cadence). ` +
+          `This adapter runs on ${this.config.network}.`,
+      );
+    }
     if (!Number.isInteger(count) || count <= 0) throw new Error("Block count must be a positive integer");
     const fundingRpc = await this.ensureFundingWallet();
     const address = await fundingRpc.call<string>("getnewaddress");
     await fundingRpc.call("generatetoaddress", [count, address]);
+  }
+
+  /**
+   * Public faucet funding, for signet. The faucet is rate-limited to one payout
+   * per address per day, so a wallet that has already claimed returns the
+   * existing balance rather than a new txid.
+   *
+   * The faucet is claimed into the wallet's P2WPKH receive address, never
+   * straight into the vault: a deposit must be *spent from* a wallet into the
+   * vault's P2TR output, because `registerVault` (TxVaultOpen) needs the funding
+   * outpoint of a transaction the vault owner controls. Faucet coins sitting on
+   * the vault address itself have no registration path.
+   */
+  async claimFaucetFunds(vaultId: string, amountBtc: number): Promise<{ txid: string; sats: bigint } | null> {
+    const context = this.depositContexts.get(vaultId);
+    if (!context) throw new Error("Unknown vault; create it before claiming faucet funds");
+    if (!Number.isFinite(amountBtc) || amountBtc <= 0) {
+      throw new Error("Faucet amount must be a positive BTC amount");
+    }
+    const address = context.wallet.receiveAddress;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    try {
+      const response = await fetch(this.config.faucetUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address, amountBtc }),
+        signal: controller.signal,
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { txid?: string; sats?: number; error?: string }
+        | null;
+      if (!response.ok || !body?.txid) {
+        // A rate-limited or declined claim is not a failure of the system; the
+        // caller decides whether an already-funded wallet is enough.
+        return null;
+      }
+      return { txid: body.txid, sats: BigInt(body.sats ?? Math.round(amountBtc * 100_000_000)) };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  get faucetAvailable(): boolean {
+    // Regtest has its own faucet semantics and is normally funded locally; the
+    // public no-auth faucet is a Bitcoin signet facility.
+    return this.config.network === "signet";
+  }
+
+  get network(): TachiNetwork {
+    return this.config.network;
+  }
+
+  /**
+   * Blocks until a public-chain deposit is confirmed. On signet there is no
+   * `generatetoaddress`, so the only honest option is to poll a Bitcoin indexer.
+   *
+   * The Tachi explorer is deliberately NOT used here: it indexes the Tachi
+   * *ledger* (epochs, vaults, vtxos) at `/api/v1/tachi/...` and carries no
+   * Bitcoin block/tx confirmation state. Bitcoin-layer confirmation comes from
+   * mempool.space's signet API, which is the same chain the vault is funded on.
+   */
+  async waitForSignetDepositConfirmation(txid: string, minConfirmations = 1): Promise<void> {
+    if (this.config.network !== "signet") {
+      throw new Error(`waitForSignetDepositConfirmation is signet-only; this adapter runs on ${this.config.network}`);
+    }
+    if (!/^[0-9a-f]{64}$/i.test(txid)) throw new Error(`Not a txid: ${txid}`);
+    // Signet blocks average ~10 minutes and occasionally much longer, so the
+    // generic RPC timeout is far too short here. A caller that wants a different
+    // ceiling can raise TACHI_RPC_TIMEOUT_MS; the floor below keeps the common
+    // case from failing while a block is merely slow.
+    const deadline = Date.now() + Math.max(this.config.timeoutMs, 30 * 60_000);
+    let lastStatus = "unknown";
+    for (;;) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetch(`https://mempool.space/signet/api/tx/${txid}/status`, {
+          signal: controller.signal,
+        });
+        if (response.ok) {
+          const body = (await response.json().catch(() => null)) as { confirmed?: boolean } | null;
+          lastStatus = body?.confirmed ? "confirmed" : "in mempool";
+          if (body?.confirmed) return;
+        } else {
+          lastStatus = `HTTP ${response.status}`;
+        }
+      } catch {
+        lastStatus = "indexer unreachable";
+      } finally {
+        clearTimeout(timer);
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Deposit ${txid} was not confirmed within ${this.config.timeoutMs}ms (last status: ${lastStatus}). ` +
+            `Signet blocks average ~10 minutes; rerun once it has a confirmation.`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+    }
   }
 
   private createFundingWalletRpc() {
