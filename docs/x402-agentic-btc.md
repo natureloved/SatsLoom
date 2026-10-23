@@ -1,14 +1,31 @@
-# x402-style demo endpoint
+# x402 / L402 Agent Payment Flow
 
-The API includes `GET /api/x402/resource` and `POST /api/x402/agent-pay` to demonstrate an HTTP 402 challenge/response shape. This is **not a Bitcoin-native payment integration** and does not charge sats.
+SatsLoom supports machine-to-machine, agentic payments via the x402 / L402 protocol standard. It features a **live L402 paywall** when connected to a Lightning node, and a tamper-evident **signed receipt fallback** for simulated sandbox testing.
 
-## Demo flow
+## 1. Live L402 Paywall (Node Configured)
 
-1. With demo mode enabled, `GET /api/x402/resource` returns HTTP 402, a sample invoice ID, and `WWW-Authenticate: SatsLoom-Demo ...`.
-2. `POST /api/x402/agent-pay` marks that specially tagged 50-sat demo invoice as confirmed and settled in local application state. No payment, provider call, VTXO transfer, or chain broadcast occurs.
-3. The API issues a short-lived HMAC-signed `SatsLoom-Demo <payload>.<signature>` receipt.
-4. The client retries with that receipt in `Authorization`. The resource endpoint verifies the HMAC, expiry, matching invoice purpose, and simulated settlement state before returning sample content.
+When a Lightning node is active (`SATSLOOM_RAIL=lnd` or reachable node):
 
-The signature makes the receipt tamper-evident within this application. It is **not** a Lightning invoice preimage, proof of Bitcoin payment, on-chain transaction, or third-party attestation. The sample resource content is not live market or Tachi data.
+1. **Challenge:** An agent requests `GET /api/x402/resource`. The API answers with `HTTP 402 Payment Required` and headers:
+   ```http
+   WWW-Authenticate: L402 macaroon="pay-to-obtain", invoice="lntbs...", price="50", currency="SAT"
+   x-satsloom-payment-hash: <paymentHash>
+   ```
+2. **Settlement:** The AI agent pays the BOLT11 invoice over the Lightning Network (e.g. via Signet wallet or automated agent treasury).
+3. **Observation & Crediting:** SatsLoom's `InvoiceWatcher` detects the settled HTLC and obtains the preimage revealed by the payer's node. `verifyPayment()` cryptographically confirms `sha256(preimage) == paymentHash`.
+4. **Unlock:** The agent retries with the credential in the `Authorization` header:
+   ```http
+   Authorization: L402 <macaroon>:<preimage>
+   ```
+   The API verifies that `sha256(preimage)` matches the invoice's payment hash and responds with `HTTP 200 OK` and `{ unlocked: true, protocol: "L402", proof: "preimage-sha256" }`.
 
-In production, set `SATSLOOM_DEMO_MODE=false` unless simulations are explicitly intended. To run the x402 demo in production mode, explicitly enable demo mode and configure a high-entropy `SATSLOOM_PROOF_SECRET`; doing so still does not enable real payments.
+## 2. Sandbox Simulation Fallback (Demo Mode)
+
+When running offline or without an active Lightning node:
+
+1. `GET /api/x402/resource` returns `HTTP 402` with `WWW-Authenticate: SatsLoom-Demo ...`.
+2. `POST /api/x402/agent-pay` simulates payment in local state and issues an HMAC-SHA256 signed `SatsLoom-Demo <payload>.<signature>` receipt.
+3. The client replays `GET /api/x402/resource` with `Authorization: SatsLoom-Demo ...`. The server validates the HMAC signature, timestamp expiry, and demo state to release sample content.
+
+In production environments without a node, set `SATSLOOM_DEMO_MODE=false` unless simulations are explicitly enabled.
+

@@ -1,17 +1,41 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
 
 interface Props {
   invoice: any;
   onClose: () => void;
   onSimulatePay: () => void;
   isSimulated: boolean;
+  onSwitchToLive?: () => void;
+  isLiveAvailable?: boolean;
 }
 
-export function CustomerCheckoutModal({ invoice, onClose, onSimulatePay, isSimulated }: Props) {
+export function CustomerCheckoutModal({
+  invoice,
+  onClose,
+  onSimulatePay,
+  isSimulated,
+  onSwitchToLive,
+  isLiveAvailable,
+}: Props) {
   const [copied, setCopied] = useState(false);
+  const [copiedPayload, setCopiedPayload] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
   const amountSats = Number(invoice?.amountSats ?? 0);
   const checkoutUrl = `${window.location.origin}/#checkout/${encodeURIComponent(invoice?.id ?? "")}`;
+
+  const qrPayload = useMemo(() => {
+    if (invoice?.payment?.bolt11) return invoice.payment.bolt11;
+    if (invoice?.bolt11) return invoice.bolt11;
+    if (invoice?.payment?.bip21) return invoice.payment.bip21;
+    if (invoice?.bip21) return invoice.bip21;
+    if (invoice?.id) {
+      return `lightning:${invoice.id}`;
+    }
+    return checkoutUrl;
+  }, [invoice, checkoutUrl]);
 
   useEffect(() => {
     const expiresAt = Date.parse(invoice?.expiresAt ?? "");
@@ -22,10 +46,30 @@ export function CustomerCheckoutModal({ invoice, onClose, onSimulatePay, isSimul
     return () => clearInterval(interval);
   }, [invoice?.expiresAt, isSimulated]);
 
+  useEffect(() => {
+    if (!canvasRef.current || !qrPayload) return;
+    QRCode.toCanvas(canvasRef.current, qrPayload, {
+      width: 220,
+      margin: 2,
+      errorCorrectionLevel: "M",
+      color: { dark: "#0D0B07", light: "#FFFFFF" },
+    }).catch(() => {
+      if (canvasRef.current && invoice?.id) {
+        QRCode.toCanvas(canvasRef.current, invoice.id, { width: 220, margin: 2 }).catch(() => {});
+      }
+    });
+  }, [qrPayload, invoice?.id]);
+
   const copyCheckoutUrl = async () => {
     await navigator.clipboard.writeText(checkoutUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyPayload = async () => {
+    await navigator.clipboard.writeText(qrPayload);
+    setCopiedPayload(true);
+    setTimeout(() => setCopiedPayload(false), 2000);
   };
 
   const timeFormatted = `${Math.floor(secondsRemaining / 60).toString().padStart(2, "0")}:${(secondsRemaining % 60).toString().padStart(2, "0")}`;
@@ -37,8 +81,10 @@ export function CustomerCheckoutModal({ invoice, onClose, onSimulatePay, isSimul
           <div className="checkout-brand">
             <span className="bitcoin-logo">₿</span>
             <div>
-              <h3>SatsLoom Demo Checkout</h3>
-              <p className="checkout-subtitle">No Bitcoin network payment is connected</p>
+              <h3>SatsLoom Invoice Checkout</h3>
+              <p className="checkout-subtitle">
+                {isLiveAvailable ? "Scannable Lightning payment QR" : "Demo simulation · Scannable QR code"}
+              </p>
             </div>
           </div>
           <button className="close-btn" onClick={onClose} aria-label="Close modal">✕</button>
@@ -68,32 +114,62 @@ export function CustomerCheckoutModal({ invoice, onClose, onSimulatePay, isSimul
                 <span className="amount-number">{amountSats.toLocaleString()}</span>
                 <span className="sats-label">SATS</span>
               </div>
-              <div className="usd-equivalent">Demo amount · not payable</div>
+              <div className="usd-equivalent">
+                {isLiveAvailable ? "Signet test coins · real settlement" : "Demo amount · simulated drill"}
+              </div>
             </div>
 
             <div className="qr-container">
-              <div className="qr-placeholder">No payment QR or Bitcoin address is available in demo mode.</div>
+              <canvas
+                ref={canvasRef}
+                width={220}
+                height={220}
+                className="qr-image"
+                aria-label="Bitcoin payment QR code"
+              />
               <div className="timer-badge">
                 <span className="pulse-dot"></span>
-                <span>Demo invoice expires in {timeFormatted}</span>
+                <span>Invoice expires in {timeFormatted}</span>
               </div>
             </div>
 
             <div className="uri-copy-row">
-              <input readOnly value={invoice?.id ?? ""} className="uri-input" aria-label="Invoice ID" />
-              <button className="copy-btn" onClick={copyCheckoutUrl} title="Copy checkout link">
-                {copied ? "✓ Link copied" : "Copy link"}
+              <input readOnly value={qrPayload} className="uri-input" aria-label="Invoice payment URI" />
+              <button className="copy-btn" onClick={copyPayload} title="Copy payment string">
+                {copiedPayload ? "✓ Copied" : "Copy URI"}
               </button>
             </div>
 
             <p className="checkout-memo"><strong>Memo:</strong> {invoice?.memo || "SatsLoom Demo Invoice"}</p>
 
+            {onSwitchToLive && (
+              <div className="checkout-live-switch-callout">
+                <div className="live-callout-text">
+                  <strong>Prefer a real Lightning payment?</strong>
+                  <span>Switch to the Live Signet rail for a real BOLT11 invoice and node-verified settlement.</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary live-switch-btn full-width"
+                  onClick={onSwitchToLive}
+                >
+                  ⚡ Switch to Live Signet Invoice →
+                </button>
+              </div>
+            )}
+
             <div className="checkout-simulation-banner">
               <div className="banner-info">
-                <strong>Simulation only:</strong> no funds are received, sent, or verified.
+                <strong>Demo simulator:</strong> Click below to simulate invoice confirmation and route event delivery.
               </div>
               <button className="btn-pay-simulate" onClick={onSimulatePay} disabled={secondsRemaining === 0}>
                 <span>Simulate invoice confirmation</span>
+              </button>
+            </div>
+
+            <div className="checkout-link-row">
+              <button className="btn-ghost-link" onClick={copyCheckoutUrl}>
+                {copied ? "✓ Checkout link copied" : "Copy checkout page URL"}
               </button>
             </div>
           </div>

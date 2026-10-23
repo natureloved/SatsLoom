@@ -281,6 +281,15 @@ describe("LND REST backend", () => {
           ] });
           return;
         }
+        if (req.url === "/v1/channels/transactions" && req.method === "POST") {
+          send(200, {
+            payment_error: "",
+            payment_preimage: Buffer.from(PREIMAGE, "hex").toString("base64"),
+            payment_hash: Buffer.from(PAYMENT_HASH, "hex").toString("base64"),
+            payment_route: { total_amt_msat: "21000", total_fees_msat: "100" },
+          });
+          return;
+        }
         send(404, { error: "unknown endpoint" });
       });
     });
@@ -367,6 +376,24 @@ describe("LND REST backend", () => {
 
   it("refuses a macaroon that is not hex", () => {
     expect(() => new LndRestBackend({ baseUrl, macaroonHex: "not-a-macaroon", network: "mainnet", allowInsecureHttp: true })).toThrow(/hex/);
+  });
+
+  it("pays a BOLT11 invoice and verifies the returned preimage proof", async () => {
+    const result = await backend().payInvoice("lnbcrt210n1stub");
+    expect(result.paymentHash).toBe(PAYMENT_HASH);
+    expect(result.preimage).toBe(PREIMAGE);
+    expect(result.paidMsat).toBe(21_000n);
+  });
+
+  it("pays an invoice in fixture mode and updates outbound capacity", async () => {
+    const fixture = new FixtureLightningBackend({ outboundSats: 100_000n });
+    const created = await fixture.createInvoice({ amountMsat: 21_000n, description: "Payout", expirySeconds: 600 });
+    const result = await fixture.payInvoice(created.bolt11);
+    expect(result.paymentHash).toBe(created.paymentHash);
+    expect(result.preimage).toBeDefined();
+    expect(paymentHashFromPreimage(result.preimage)).toBe(created.paymentHash);
+    const liq = await fixture.liquidity();
+    expect(liq.outboundSats).toBe(100_000n - 21n);
   });
 });
 

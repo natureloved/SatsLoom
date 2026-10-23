@@ -214,4 +214,14 @@ describe("invoice API workflow", () => {
     expect(webhooks.statusCode).toBe(200);
     expect(Array.isArray(webhooks.json().data)).toBe(true);
   });
+
+  it("guards live payout endpoint when no live node is configured", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/live/payouts",
+      payload: { invoice: "lnbcrt100n1p..." },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toContain("A configured and reachable Lightning node is required");
+  });
 });

@@ -13,6 +13,7 @@ export default defineConfig({
     env: {
       NODE_ENV: "test",
       SATSLOOM_RAIL: "fixture",
+      SATSLOOM_LIGHTNING_NETWORK: "signet",
       // Keep any stray ambient node config from reaching the test process at all.
       SATSLOOM_RAIL_FORCE: "fixture",
     },

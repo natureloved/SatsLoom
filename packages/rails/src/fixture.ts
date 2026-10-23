@@ -13,14 +13,15 @@
  * this class that can report itself as live.
  */
 import { createECDH, createHash, randomBytes } from "node:crypto";
-import { DEFAULT_FEATURES, encodeInvoice, type Bolt11Network } from "@satsloom/bolt11";
-import type {
-  BackendInvoice,
-  BackendInvoiceStatus,
-  LightningNodeBackend,
-  RailHealth,
-  RailLiquidity,
-  RailNetwork,
+import { DEFAULT_FEATURES, decodeInvoice, encodeInvoice, type Bolt11Network } from "@satsloom/bolt11";
+import {
+  RailError,
+  type BackendInvoice,
+  type BackendInvoiceStatus,
+  type LightningNodeBackend,
+  type RailHealth,
+  type RailLiquidity,
+  type RailNetwork,
 } from "./index.js";
 
 /**
@@ -57,7 +58,7 @@ export class FixtureLightningBackend implements LightningNodeBackend {
   readonly network: RailNetwork;
   private readonly privateKey: string;
   private readonly inboundSats: bigint;
-  private readonly outboundSats: bigint;
+  private outboundSats: bigint;
   private readonly onchainSats: bigint;
   private readonly invoices = new Map<string, FixtureInvoice>();
 
@@ -123,6 +124,26 @@ export class FixtureLightningBackend implements LightningNodeBackend {
       return { state: "expired" };
     }
     return { state: invoice.state, paidMsat: invoice.paidMsat };
+  }
+
+  async payInvoice(bolt11: string, _maxFeeMsat?: bigint): Promise<{ paymentHash: string; preimage: string; paidMsat: bigint }> {
+    const decoded = decodeInvoice(bolt11);
+    const amountMsat = decoded.amountMsat ?? 10_000_000n;
+    if (amountMsat > this.outboundSats * 1000n) {
+      throw new RailError("insufficient_balance", `Fixture outbound capacity (${this.outboundSats} sats) insufficient for ${amountMsat / 1000n} sats`);
+    }
+    const existing = this.invoices.get(decoded.paymentHash.toLowerCase());
+    let preimage: string;
+    if (existing?.preimage) {
+      preimage = existing.preimage;
+      existing.state = "paid";
+      existing.paidMsat = amountMsat;
+      existing.settledAt = Math.floor(Date.now() / 1000);
+    } else {
+      preimage = createHash("sha256").update(`fixture-paid:${decoded.paymentHash}`).digest("hex");
+    }
+    this.outboundSats = this.outboundSats - (amountMsat / 1000n);
+    return { paymentHash: decoded.paymentHash, preimage, paidMsat: amountMsat };
   }
 
   async liquidity(): Promise<RailLiquidity> {

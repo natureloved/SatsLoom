@@ -80,9 +80,15 @@ export function LiveSignetCheckout({ request, rail, onIssue, onClose, onPaid }: 
     return () => clearInterval(t);
   }, [request]);
 
+  const hasNotifiedPaid = useRef(false);
+
+  useEffect(() => {
+    hasNotifiedPaid.current = false;
+  }, [request?.paymentHash]);
+
   /* ------------------------------------------------------- poll the rail for payment */
   const poll = useCallback(async () => {
-    if (!request) return;
+    if (!request || hasNotifiedPaid.current) return;
     try {
       const response = await fetch(`/api/live/invoices/${encodeURIComponent(request.invoiceId)}`);
       const body = await response.json().catch(() => null);
@@ -91,7 +97,10 @@ export function LiveSignetCheckout({ request, rail, onIssue, onClose, onPaid }: 
       setErrs(0);
       if (data.settlement?.preimage) {
         setState({ kind: "paid", settlement: data.settlement });
-        onPaid?.(request.paymentHash);
+        if (!hasNotifiedPaid.current) {
+          hasNotifiedPaid.current = true;
+          onPaid?.(request.paymentHash);
+        }
         return;
       }
       const observed = data.observation?.state;
@@ -107,14 +116,17 @@ export function LiveSignetCheckout({ request, rail, onIssue, onClose, onPaid }: 
   }, [request, onPaid]);
 
   useEffect(() => {
-    if (!request) return;
+    if (!request || state.kind === "paid") return;
     void poll();
-    // Stop polling once the payment is credited, so a settled invoice is not a request loop.
-    if (state.kind === "paid") return;
-    const t = setInterval(() => void poll(), 4000);
+    const t = setInterval(() => {
+      if (hasNotifiedPaid.current) {
+        clearInterval(t);
+        return;
+      }
+      void poll();
+    }, 4000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request]);
+  }, [request, state.kind, poll]);
 
   const copy = async (label: string, value: string) => {
     await navigator.clipboard.writeText(value);

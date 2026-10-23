@@ -2,11 +2,13 @@
 
 ## Components
 
-- `apps/web` is the React/Vite demo UI.
-- `apps/api` is a Fastify API. It exposes invoice lifecycle, route-selection, event-stream, webhook, operations, and x402-style routes.
+- `apps/web` is the React/Vite UI with live Signet checkout (`LiveSignetCheckout`), real QR codes, theme toggling, and dashboard operations.
+- `apps/api` is a Fastify API exposing live payment routes (`/api/live/*`), live L402 paywall, and parallel simulation endpoints.
+- `packages/rails` is the payment rail abstraction: contains `LightningRail`, `LndRestBackend`, `FixtureLightningBackend`, `InvoiceWatcher`, and pure `verifyPayment()` credit rules.
+- `packages/bolt11` is the native BOLT11 invoice encoder/decoder/verifier with secp256k1 signature validation.
 - `packages/domain` contains the invoice lifecycle and settlement state machine.
 - `packages/router` ranks eligible routes and selects one route; it does not split an amount across multiple routes.
-- `packages/tachi-adapter` contains SDK-facing integration methods and is exercised separately through the opt-in development spike. Its SDK dependencies are dev-only; the public API does not query Tachi or call these methods. The demo `/settle` endpoint is simulation-only.
+- `packages/tachi-adapter` contains SDK-facing integration methods and is exercised separately through the opt-in development spike.
 - `apps/api/src/storage.ts` implements atomic-rename JSON persistence for a single local process. On Vercel, the default is process memory. Neither option is a shared transactional database.
 
 ## Demo behavior

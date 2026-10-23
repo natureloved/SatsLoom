@@ -628,10 +628,20 @@ export function App() {
 
   const queuePayout = async (payoutAmount: string, destination: string) => {
     await action(async () => {
-      await api("/api/payouts", {
-        method: "POST",
-        body: JSON.stringify({ amountSats: payoutAmount, destination }),
-      });
+      const trimmed = destination.trim();
+      if (trimmed.toLowerCase().startsWith("ln")) {
+        await api("/api/live/payouts", {
+          method: "POST",
+          body: JSON.stringify({ invoice: trimmed }),
+        });
+        showToast("Live Lightning payout settled via preimage proof!");
+      } else {
+        await api("/api/payouts", {
+          method: "POST",
+          body: JSON.stringify({ amountSats: payoutAmount, destination: trimmed }),
+        });
+        showToast("Simulation payout queued");
+      }
       await refreshOperations();
     });
   };
@@ -667,9 +677,10 @@ export function App() {
 
   if (currentView === "dashboard") {
     return (
-      <div className="dash-root">
-        <ThemeToggle theme={theme} onToggle={toggleTheme} className="dash-theme" />
+      <>
         <SatsLoomDashboard
+          theme={theme}
+          onToggleTheme={toggleTheme}
           overview={overview}
           transactions={transactions}
           refunds={refunds}
@@ -677,6 +688,7 @@ export function App() {
           liquidity={liquidity}
           routedSats={routedSats}
           status={status}
+          health={health}
           invoice={invoice}
           routes={routes}
           settlement={settlement}
@@ -687,6 +699,7 @@ export function App() {
               createInvoice();
             }
           }}
+          onOpenLiveReceive={(amt, memo) => issueLiveInvoice(amt, memo)}
           onOpenSend={() => {
             createInvoice();
           }}
@@ -934,9 +947,50 @@ export function App() {
             onClose={() => setShowCheckoutModal(false)}
             onSimulatePay={simulatePayment}
             isSimulated={isSimulated}
+            onSwitchToLive={() => {
+              setShowCheckoutModal(false);
+              void issueLiveInvoice(Number(invoice?.amountSats) || 1000, invoice?.memo || "SatsLoom signet invoice");
+            }}
+            isLiveAvailable={health?.paymentExecution === "lightning-rail"}
           />
         )}
-      </div>
+
+        {/* Live Signet Checkout Modal */}
+        {showLiveCheckout && (
+          <div className="modal-backdrop" onClick={() => setShowLiveCheckout(false)}>
+            <div className="modal-content checkout-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <div className="checkout-brand">
+                  <span className="bitcoin-logo">₿</span>
+                  <div>
+                    <h3>SatsLoom · Live Signet Invoice</h3>
+                    <p className="checkout-subtitle">
+                      {health?.rail?.network ? `Bitcoin ${health.rail.network} · Real BOLT11` : "No rail configured"}
+                    </p>
+                  </div>
+                </div>
+                <button className="close-btn" onClick={() => setShowLiveCheckout(false)} aria-label="Close modal">✕</button>
+              </div>
+              {liveCheckoutError && !liveInvoice ? (
+                <div className="live-error" role="status">
+                  <strong>No invoice was issued.</strong> {liveCheckoutError}
+                </div>
+              ) : (
+                <LiveSignetCheckout
+                  request={liveInvoice}
+                  rail={health?.rail ?? null}
+                  onIssue={(amountSats, memo) => issueLiveInvoice(amountSats, memo).catch(() => {})}
+                  onClose={() => setShowLiveCheckout(false)}
+                  onPaid={(paymentHash) => {
+                    setLivePaidCount((n) => n + 1);
+                    showToast(`Lightning payment received (${paymentHash.slice(0, 12)}…)`);
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -948,43 +1002,60 @@ export function App() {
       {/* ================= NAV ================= */}
       <header id="hdr" className={scrolled ? "scrolled" : ""}>
         <div className="nav-inner">
-          <a href="#top" className="logo">
-            <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+          <a href="#top" className="logo" aria-label="SatsLoom home">
+            <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
               <rect x="1" y="1" width="30" height="30" stroke="var(--logo-frame)" strokeWidth="1.5" />
               <path d="M6 10h20M6 16h20M6 22h20" stroke="#F7931A" strokeWidth="2" />
               <path d="M11 5v22M21 5v22" stroke="var(--logo-glyph)" strokeWidth="2" />
             </svg>
-            SATS<b>LOOM</b>
+            <span>SATS<b>LOOM</b></span>
           </a>
-          <nav className="nav-links">
+
+          <nav className="nav-links" aria-label="Primary navigation">
             <a href="#flow">The Weave</a>
             <a href="#primitives">Primitives</a>
             <a href="#routelab">Route Lab</a>
             <a href="#x402">x402</a>
             <a href="#selfhost">Self-host</a>
           </nav>
-          <div className="status-pill">
-            <span className="pulse-dot"></span>
-            {health?.railHealth?.reachable ? `${health.rail.rail.toUpperCase()} NODE · REACHABLE` : "NO LIGHTNING NODE CONFIGURED"}
+
+          <div className="nav-actions">
+            <div
+              className={`status-pill ${health?.railHealth?.reachable ? "live" : "simulation"}`}
+              title={
+                health?.railHealth?.reachable
+                  ? `${health.rail.rail.toUpperCase()} node reachable on ${health.rail.network}`
+                  : "Running simulated payment rails (no live Lightning node configured)"
+              }
+            >
+              <span className="pulse-dot"></span>
+              <span className="status-pill-text">
+                {health?.railHealth?.reachable ? `${health.rail.rail.toUpperCase()} · LIVE` : "NO LIGHTNING NODE"}
+              </span>
+            </div>
+
+            <ThemeToggle theme={theme} onToggle={toggleTheme} className="nav-theme" />
+
+            <button
+              className="nav-cta-secondary"
+              onClick={() => {
+                setCurrentView("dashboard");
+                window.location.hash = "dashboard";
+              }}
+            >
+              Dashboard ⚡
+            </button>
+
+            <a href="#selfhost" className="nav-cta">
+              Deploy
+            </a>
+
+            <button id="burger" aria-label="menu" onClick={() => setMenuOpen(!menuOpen)}>
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
           </div>
-          <ThemeToggle theme={theme} onToggle={toggleTheme} className="nav-theme" />
-          <button
-            className="nav-cta-secondary"
-            onClick={() => {
-              setCurrentView("dashboard");
-              window.location.hash = "dashboard";
-            }}
-          >
-            Dashboard ⚡
-          </button>
-          <a href="#selfhost" className="nav-cta">
-            Deploy
-          </a>
-          <button id="burger" aria-label="menu" onClick={() => setMenuOpen(!menuOpen)}>
-            <span></span>
-            <span></span>
-            <span></span>
-          </button>
         </div>
       </header>
 
@@ -2137,6 +2208,11 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
           onClose={() => setShowCheckoutModal(false)}
           onSimulatePay={simulatePayment}
           isSimulated={isSimulated}
+          onSwitchToLive={() => {
+            setShowCheckoutModal(false);
+            void issueLiveInvoice(Number(invoice?.amountSats) || 1000, invoice?.memo || "SatsLoom signet invoice");
+          }}
+          isLiveAvailable={health?.paymentExecution === "lightning-rail"}
         />
       )}
     </div>

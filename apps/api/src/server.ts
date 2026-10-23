@@ -17,6 +17,7 @@ import {
   InvoiceWatcher,
   PaymentCorrespondence,
   buildLightningRailFromEnv,
+  decodeInvoice,
   type PaymentObservation,
   type PaymentRequest,
 } from "@satsloom/rails";
@@ -1199,6 +1200,65 @@ app.get("/api/live/liquidity", async (request, reply) => {
     return envelope(request.id, liquidity, { simulation: false, rail: railSummary() });
   } catch (error) {
     return reply.code(503).send(envelope(request.id, null, { error: `Could not read liquidity from the node: ${(error as Error).message}` }));
+  }
+});
+
+/**
+ * Execute an outgoing Lightning payment to a BOLT11 invoice.
+ * Used for real merchant payouts and wallet withdrawals on the configured rail.
+ */
+app.post("/api/live/payouts", async (request: any, reply) => {
+  if (railUnavailable()) {
+    return reply.code(503).send(envelope(request.id, null, {
+      error: "A configured and reachable Lightning node is required for live payouts",
+      railConfigError: railConfigError ?? null,
+    }));
+  }
+  const invoice = typeof request.body?.invoice === "string"
+    ? request.body.invoice.trim()
+    : typeof request.body?.bolt11 === "string"
+      ? request.body.bolt11.trim()
+      : "";
+  if (!invoice) {
+    return reply.code(400).send(envelope(request.id, null, { error: "A BOLT11 invoice string is required in 'invoice' or 'bolt11'" }));
+  }
+  let decoded;
+  try {
+    decoded = decodeInvoice(invoice);
+  } catch (error) {
+    return reply.code(400).send(envelope(request.id, null, { error: `Invalid BOLT11 invoice: ${(error as Error).message}` }));
+  }
+  const railNetwork = activeRail.describe().network;
+  if (decoded.network !== railNetwork) {
+    return reply.code(400).send(envelope(request.id, null, {
+      error: `Invoice is for ${decoded.network}, but active rail network is ${railNetwork}`,
+    }));
+  }
+  const maxFeeMsat = request.body?.maxFeeMsat !== undefined ? BigInt(String(request.body.maxFeeMsat)) : undefined;
+  try {
+    const result = await activeRail.pay(invoice, maxFeeMsat);
+    const payoutRecord = {
+      id: crypto.randomUUID(),
+      paymentHash: result.paymentHash,
+      preimage: result.preimage,
+      amountMsat: result.paidMsat,
+      amountSats: result.paidMsat / 1000n,
+      destination: invoice,
+      status: "completed",
+      verified: true,
+      verification: "preimage-sha256",
+      rail: result.rail,
+      network: railNetwork,
+      simulation: false,
+      createdAt: new Date().toISOString(),
+    };
+    payouts.set(payoutRecord.id, payoutRecord);
+    persist();
+    return envelope(request.id, payoutRecord, { simulation: false, rail: railSummary() });
+  } catch (error) {
+    return reply.code(502).send(envelope(request.id, null, {
+      error: `Lightning payout failed: ${(error as Error).message}`,
+    }));
   }
 });
 

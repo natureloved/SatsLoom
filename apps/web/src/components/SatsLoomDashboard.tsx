@@ -4,6 +4,7 @@ import { OperationsView } from "./OperationsView";
 import { X402Sandbox } from "./X402Sandbox";
 import { SatsShop } from "./SatsShop";
 import { RouteVisualizer } from "./RouteVisualizer";
+import { ThemeToggle } from "./ThemeProvider";
 
 interface Props {
   overview?: any;
@@ -13,10 +14,12 @@ interface Props {
   liquidity?: any;
   routedSats?: number;
   status?: any;
+  health?: any;
   invoice?: any;
   routes?: any;
   settlement?: any;
   onOpenReceive: () => void;
+  onOpenLiveReceive?: (amountSats: number, memo: string) => void | Promise<void>;
   onOpenSend: () => void;
   onBackToHome: () => void;
   onSelectNav?: (tab: string) => void;
@@ -30,6 +33,8 @@ interface Props {
   onBuyShopProduct?: (product: any) => Promise<void>;
   vaultAddress?: string;
   busy?: boolean;
+  theme?: "dark" | "light";
+  onToggleTheme?: () => void;
 }
 
 export function SatsLoomDashboard({
@@ -40,10 +45,12 @@ export function SatsLoomDashboard({
   liquidity,
   routedSats = 0,
   status,
+  health,
   invoice,
   routes,
   settlement,
   onOpenReceive,
+  onOpenLiveReceive,
   onOpenSend,
   onBackToHome,
   onSelectNav,
@@ -57,6 +64,8 @@ export function SatsLoomDashboard({
   onBuyShopProduct,
   vaultAddress = "",
   busy = false,
+  theme,
+  onToggleTheme,
 }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeNavItem, setActiveNavItem] = useState("dashboard");
@@ -64,6 +73,12 @@ export function SatsLoomDashboard({
   const [exitDrillOpen, setExitDrillOpen] = useState(false);
   const [drillStage, setDrillStage] = useState<"idle" | "running" | "complete">("idle");
   const [drillLogs, setDrillLogs] = useState<string[]>([]);
+  const [issueModalOpen, setIssueModalOpen] = useState(false);
+  const [issueRailMode, setIssueRailMode] = useState<"live" | "simulated">(
+    health?.paymentExecution === "lightning-rail" ? "live" : "live"
+  );
+  const [issueAmount, setIssueAmount] = useState<number>(1000);
+  const [issueMemo, setIssueMemo] = useState<string>("SatsLoom merchant payment");
 
   // Route Lab simulator state (for Route Fabric tab)
   const [labAmount, setLabAmount] = useState(21000);
@@ -233,6 +248,122 @@ export function SatsLoomDashboard({
         </div>
       )}
 
+      {/* Issue Invoice Modal (Live Signet or Demo Simulation) */}
+      {issueModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIssueModalOpen(false)}>
+          <div className="modal-content issue-invoice-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="drill-brand">
+                <span className="bitcoin-logo">₿</span>
+                <div>
+                  <h3>Issue Payment Invoice</h3>
+                  <p className="checkout-subtitle">
+                    {issueRailMode === "live"
+                      ? "Bitcoin Signet · Real BOLT11 invoice & node settlement"
+                      : "Route Scoring Simulator · In-process merchant drill"}
+                  </p>
+                </div>
+              </div>
+              <button className="close-btn" onClick={() => setIssueModalOpen(false)}>✕</button>
+            </div>
+
+            <div className="issue-body">
+              {/* Rail selector tabs */}
+              <div className="issue-rail-tabs">
+                <button
+                  type="button"
+                  className={`issue-tab-btn ${issueRailMode === "live" ? "active" : ""}`}
+                  onClick={() => setIssueRailMode("live")}
+                >
+                  ⚡ Live Signet (Real BOLT11)
+                </button>
+                <button
+                  type="button"
+                  className={`issue-tab-btn ${issueRailMode === "simulated" ? "active" : ""}`}
+                  onClick={() => setIssueRailMode("simulated")}
+                >
+                  🧪 Route Simulator (Demo)
+                </button>
+              </div>
+
+              {/* Status pill based on rail configuration */}
+              <div className={`issue-rail-banner ${health?.paymentExecution === "lightning-rail" ? "live" : "fixture"}`}>
+                {health?.paymentExecution === "lightning-rail" ? (
+                  <span>
+                    <strong>⚡ Lightning Node Active:</strong> {health?.rail?.network ?? "signet"} rail via {health?.rail?.rail ?? "lnd"}. Real preimages unlock funds.
+                  </span>
+                ) : (
+                  <span>
+                    <strong>ℹ️ Fixture Mode Active:</strong> Running in simulated test mode. Set <code>SATSLOOM_RAIL=lnd</code> and node credentials to connect live Signet LND.
+                  </span>
+                )}
+              </div>
+
+              <div className="issue-form-group">
+                <label className="issue-label">Amount (Satoshis)</label>
+                <div className="issue-amount-input-wrap">
+                  <input
+                    type="number"
+                    min="1"
+                    className="issue-input"
+                    value={issueAmount}
+                    onChange={(e) => setIssueAmount(Math.max(1, parseInt(e.target.value) || 0))}
+                    placeholder="1000"
+                  />
+                  <span className="issue-unit">SATS</span>
+                </div>
+                <div className="issue-quick-amounts">
+                  {[500, 1000, 5000, 21000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      className={`quick-amt-pill ${issueAmount === amt ? "active" : ""}`}
+                      onClick={() => setIssueAmount(amt)}
+                    >
+                      {amt.toLocaleString()} sats
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="issue-form-group">
+                <label className="issue-label">Memo / Description</label>
+                <input
+                  type="text"
+                  className="issue-input"
+                  value={issueMemo}
+                  maxLength={160}
+                  onChange={(e) => setIssueMemo(e.target.value)}
+                  placeholder="Payment description"
+                />
+              </div>
+
+              <div className="issue-actions">
+                <button
+                  type="button"
+                  className="btn-primary full-width"
+                  disabled={busy || issueAmount <= 0}
+                  onClick={async () => {
+                    setIssueModalOpen(false);
+                    if (issueRailMode === "live" && onOpenLiveReceive) {
+                      await onOpenLiveReceive(issueAmount, issueMemo || "SatsLoom signet invoice");
+                    } else {
+                      if (onCreateInvoice) {
+                        onCreateInvoice();
+                      } else {
+                        onOpenReceive();
+                      }
+                    }
+                  }}
+                >
+                  {issueRailMode === "live" ? "⚡ Issue Live Signet Invoice" : "🧪 Generate Demo Drill Invoice"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="layout">
         {/* ================= SIDEBAR ================= */}
         <aside className={`sidebar ${sidebarOpen ? "open" : ""}`} id="sidebar">
@@ -345,7 +476,7 @@ export function SatsLoomDashboard({
                 className="nav-item"
                 onClick={() => {
                   setSidebarOpen(false);
-                  onOpenReceive();
+                  setIssueModalOpen(true);
                 }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -444,11 +575,11 @@ export function SatsLoomDashboard({
             <div className="top-actions">
               <button
                 className="icon-button node-status-btn"
-                title="The public API does not query Tachi; settlement is simulated"
+                title={health?.paymentExecution === "lightning-rail" ? "Connected to live Lightning Signet rail via LND" : "The public API is running in fixture mode; settlement is simulated"}
                 onClick={() => handleNav("telemetry")}
               >
                 <span className="pulse-dot"></span>
-                <span>{status?.daemon?.reachable ? "ENDPOINT REACHABLE" : "DEMO MODE"}</span>
+                <span>{health?.paymentExecution === "lightning-rail" ? "⚡ SIGNET LIVE" : "DEMO MODE"}</span>
               </button>
 
               <button
@@ -461,14 +592,18 @@ export function SatsLoomDashboard({
 
               <button
                 className="primary-btn"
-                onClick={onOpenReceive}
-                title="Create a simulated invoice; no payment QR is issued"
+                onClick={() => setIssueModalOpen(true)}
+                title="Issue a Live Signet or Simulated invoice"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
                 <span>+ Issue Invoice</span>
               </button>
+
+              {theme && onToggleTheme && (
+                <ThemeToggle theme={theme} onToggle={onToggleTheme} className="topbar-theme-toggle" />
+              )}
             </div>
           </header>
 
@@ -491,13 +626,19 @@ export function SatsLoomDashboard({
                   </div>
                 </div>
                 <div className="balance-actions">
+                  <button className="primary-btn" onClick={() => setIssueModalOpen(true)}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path d="M12 3v14M5 12h14" />
+                    </svg>
+                    + Issue Invoice (Live / Demo)
+                  </button>
                   <button className="secondary-btn" onClick={onOpenReceive}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                       <path d="M12 3v14" />
                       <path d="m7 8 5-5 5 5" />
                       <path d="M5 21h14" />
                     </svg>
-                    Open Demo Invoice
+                    Active Demo Invoice
                   </button>
                   <button className="secondary-btn" onClick={() => handleNav("transactions")}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">

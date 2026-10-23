@@ -21,6 +21,7 @@
 import http from "node:http";
 import https from "node:https";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type {
   BackendInvoice,
   BackendInvoiceStatus,
@@ -30,7 +31,7 @@ import type {
   RailLiquidity,
   RailNetwork,
 } from "./index.js";
-import { RailUnavailableError } from "./index.js";
+import { RailError, RailUnavailableError } from "./index.js";
 
 export type LndRestBackendOptions = {
   /** e.g. https://127.0.0.1:8080 */
@@ -145,6 +146,45 @@ export class LndRestBackend implements LightningNodeBackend {
       ? Buffer.from(response.r_preimage, "base64").toString("hex")
       : undefined;
     return { state, paidMsat, settledAt, preimage: preimage && /^[0-9a-f]{64}$/.test(preimage) ? preimage : undefined };
+  }
+
+  async payInvoice(bolt11: string, maxFeeMsat?: bigint): Promise<{ paymentHash: string; preimage: string; paidMsat: bigint }> {
+    if (!bolt11 || !bolt11.toLowerCase().startsWith("ln")) {
+      throw new RailUnavailableError("Valid BOLT11 invoice required for payment");
+    }
+    const body: Record<string, unknown> = {
+      payment_request: bolt11,
+    };
+    if (maxFeeMsat !== undefined && maxFeeMsat > 0n) {
+      body.fee_limit = { fixed_msat: maxFeeMsat.toString() };
+    }
+    const response = await this.call("POST", "/v1/channels/transactions", body);
+    if (typeof response.payment_error === "string" && response.payment_error.length > 0) {
+      throw new RailError("payment_failed", `LND payment failed: ${response.payment_error}`, {
+        details: { paymentError: response.payment_error },
+      });
+    }
+    const rawPreimage = typeof response.payment_preimage === "string" ? response.payment_preimage : undefined;
+    const rawHash = typeof response.payment_hash === "string" ? response.payment_hash : undefined;
+    if (!rawPreimage || !rawHash) {
+      throw new RailUnavailableError("LND did not return payment_preimage and payment_hash");
+    }
+    const preimage = /^[0-9a-fA-F]{64}$/.test(rawPreimage)
+      ? rawPreimage.toLowerCase()
+      : Buffer.from(rawPreimage, "base64").toString("hex").toLowerCase();
+    const paymentHash = /^[0-9a-fA-F]{64}$/.test(rawHash)
+      ? rawHash.toLowerCase()
+      : Buffer.from(rawHash, "base64").toString("hex").toLowerCase();
+
+    // Cryptographically verify: sha256(preimage) must equal paymentHash
+    const derivedHash = createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
+    if (derivedHash !== paymentHash) {
+      throw new RailError("invalid_payment_proof", `Preimage ${preimage} does not hash to payment hash ${paymentHash}`);
+    }
+
+    const route = response.payment_route as LndResponse | undefined;
+    const paidMsat = route?.total_amt_msat !== undefined ? BigInt(String(route.total_amt_msat)) : 0n;
+    return { paymentHash, preimage, paidMsat };
   }
 
   async liquidity(): Promise<RailLiquidity> {

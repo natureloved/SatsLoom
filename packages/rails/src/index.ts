@@ -224,6 +224,7 @@ export interface LightningNodeBackend {
     expirySeconds: number;
   }): Promise<BackendInvoice>;
   lookupInvoice(paymentHash: string): Promise<BackendInvoiceStatus>;
+  payInvoice(bolt11: string, maxFeeMsat?: bigint): Promise<{ paymentHash: string; preimage: string; paidMsat: bigint }>;
   liquidity(): Promise<RailLiquidity>;
 }
 
@@ -233,6 +234,7 @@ export interface PaymentRail {
   createRequest(input: CreateRequestInput): Promise<PaymentRequest>;
   /** Read the current state of a request from the rail. Never credits anything by itself. */
   observe(railRequestId: string): Promise<PaymentObservation>;
+  pay(bolt11: string, maxFeeMsat?: bigint): Promise<{ paymentHash: string; preimage: string; paidMsat: bigint; rail: string }>;
   liquidity(): Promise<RailLiquidity>;
 }
 
@@ -510,6 +512,11 @@ export class LightningRail implements PaymentRail {
 
   async liquidity(): Promise<RailLiquidity> {
     return this.backend.liquidity();
+  }
+
+  async pay(bolt11: string, maxFeeMsat?: bigint): Promise<{ paymentHash: string; preimage: string; paidMsat: bigint; rail: string }> {
+    const result = await this.backend.payInvoice(bolt11, maxFeeMsat);
+    return { ...result, rail: this.id };
   }
 }
 
