@@ -163,3 +163,31 @@ this vault was generated server-side, never logged or returned, and lives only
 in the API process memory that created it — if that process restarts before the
 run completes, the vault is unrecoverable and the run must start over with a
 fresh vault.
+
+### The run above was lost to a restart (2026-11-13 ~14:53 WAT) — and the fix
+
+That is exactly what happened: a runtime/VM restart killed the API server on
+`:3001` and wiped `/tmp`, and with it job `16e01aae-…` and its mnemonic. The
+user's 500,000 signet sats are confirmed on-chain at
+`tb1q9fua3vz0hlg7jyfvqth434f39qsaranklrfvzs` (one funding transaction,
+unspent) but the key is lost, so they are stranded — signet-only test coin
+with no real value, and no recovery is possible. Nothing had been broadcast
+for that run (no deposit, no registration, no VTXO), so there is no unknown
+transaction state. The old vault and funding addresses must never be reused.
+
+The fix (same day): every fund job is now persisted to a mode-600 file under
+`apps/api/.data/tachi-fund-jobs/<jobId>.json` (gitignored, never committed)
+the moment it is created, and re-written after every stage transition. The
+file holds the mnemonic, so on server start the API restores unfinished jobs
+and resumes them from their recorded stage instead of losing them. The
+mnemonic never appears in logs, API responses, or the public job record —
+only in that locked file. Trade-off, stated plainly: this is recoverability
+over memory-only secrecy, the same trade-off as the DrawBound operator vault
+(mnemonic in a mode-600 file). Anyone with read access to this machine can
+read the file, so the design is only acceptable for disposable signet-only
+vaults, never for mainnet funds. Known limitation: a crash in the
+milliseconds between a transaction being broadcast and its txid being
+persisted could cause a repeated deposit on resume; the persist is
+synchronous and happens immediately after each txid is recorded, so that
+window is as small as this design allows. A fresh run through the patched
+flow follows below.

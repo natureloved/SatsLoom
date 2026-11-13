@@ -29,6 +29,7 @@ import {
   getTachiFundJob,
   isTachiFundEnabled,
   parseFundDepositSats,
+  restoreTachiFundJobs,
   startTachiFundJob,
 } from "./tachi-fund.ts";
 
@@ -633,8 +634,10 @@ app.get("/api/tachi/validators", async (request) => envelope(request.id, [], { s
  * The run is asynchronous: signet blocks average ~10 minutes, so POST starts
  * the job and returns 202 with a job id; poll GET until it is complete, failed,
  * or awaiting-manual-funding (faucet declined — fund the shown address from a
- * browser and POST continue). The job only progresses while this API process
- * lives; a serverless deployment that freezes between requests stalls it.
+ * browser and POST continue). Jobs are persisted to a mode-600 file under
+ * apps/api/.data/tachi-fund-jobs and restored on server start, so a restart
+ * resumes an unfinished run instead of stranding its vault; a serverless
+ * deployment that freezes between requests still stalls a running job.
  *
  * Deliberately out of scope: a Tachi-settled merchant payment. That needs
  * 5-of-7 quorum cosignatures and the SDK only exposes cosignRefund, so no
@@ -1349,8 +1352,11 @@ export default vercelHandler;
 // above with a plain req/res and must not bind a port or start background timers.
 if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
   app.listen({ port: Number(process.env.PORT ?? 3001), host: "0.0.0.0" }).then(() => {
+    // Restore any fund jobs that were persisted before a restart, so an
+    // unfinished run resumes from its recorded stage instead of being lost.
     // Watching begins here rather than at import time, so a test suite can build the app
     // without starting background timers.
+    restoreTachiFundJobs();
     watcher.start();
   }).catch((error) => {
     app.log.error(error);

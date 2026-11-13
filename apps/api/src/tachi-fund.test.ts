@@ -1,17 +1,35 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "./server.js";
 import {
+  clearTachiFundJobs,
   continueTachiFundJob,
   getTachiFundJob,
+  restoreTachiFundJobs,
   setTachiFundAdapterFactory,
   startTachiFundJob,
+  tachiFundJobsDir,
   type TachiAdapter,
   type TachiFundJob,
 } from "./tachi-fund.js";
 
+let jobsDir: string;
+
+beforeEach(() => {
+  // Every test gets its own jobs dir so no persisted record ever touches the repo.
+  jobsDir = mkdtempSync(join(tmpdir(), "satsloom-tachi-fund-"));
+  process.env.SATSLOOM_TACHI_FUND_JOBS_DIR = jobsDir;
+  clearTachiFundJobs();
+});
+
 afterEach(() => {
   setTachiFundAdapterFactory(null);
   delete process.env.SATSLOOM_TACHI_FUND_ENABLED;
+  delete process.env.SATSLOOM_TACHI_FUND_JOBS_DIR;
+  clearTachiFundJobs();
+  if (jobsDir) rmSync(jobsDir, { recursive: true, force: true });
 });
 
 /** Waits until the job reaches a terminal status, then returns it. */
@@ -162,5 +180,47 @@ describe("Tachi vault fund flow", () => {
     expect(res.statusCode).toBe(409);
     expect(() => continueTachiFundJob("no-such-job")).not.toThrow();
     expect(continueTachiFundJob("no-such-job")).toBeNull();
+  });
+
+  it("persists the mnemonic to a locked file and restores the job after a simulated restart", async () => {
+    process.env.SATSLOOM_TACHI_FUND_ENABLED = "true";
+    setTachiFundAdapterFactory(() => stubAdapter({ claim: null }));
+    const started = await app.inject({ method: "POST", url: "/api/tachi/vault/fund", payload: {} });
+    const jobId = started.json().data.id as string;
+    const waiting = await waitForJob(jobId);
+    expect(waiting.status).toBe("awaiting-manual-funding");
+
+    // The record is on disk, locked down, and holds the mnemonic — which the
+    // public job never carries.
+    const dir = tachiFundJobsDir();
+    const files = readdirSync(dir);
+    expect(files).toEqual([`${jobId}.json`]);
+    const file = join(dir, files[0]);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const record = JSON.parse(readFileSync(file, "utf8")) as { mnemonic: unknown; job: TachiFundJob };
+    expect(typeof record.mnemonic).toBe("string");
+    // generateMnemonic from the Tachi wallet aggregator yields a 24-word phrase.
+    expect((record.mnemonic as string).split(" ").length).toBe(24);
+    expect(record.job.id).toBe(jobId);
+    expect(JSON.stringify(waiting)).not.toContain(record.mnemonic as string);
+
+    // Simulate a restart: drop the in-memory map, restore from disk.
+    clearTachiFundJobs();
+    expect(getTachiFundJob(jobId)).toBeNull();
+    const restored = restoreTachiFundJobs();
+    expect(restored.map((job) => job.id)).toContain(jobId);
+    const revived = getTachiFundJob(jobId);
+    expect(revived?.status).toBe("awaiting-manual-funding");
+    expect(revived?.vaultAddress).toBe("tb1p_stub_vault");
+    expect(revived?.fundingAddress).toBe("tb1q_stub_funding_wallet");
+    expect(JSON.stringify(revived)).not.toContain(record.mnemonic as string);
+
+    // The revived job still completes: continue re-derives the vault from the
+    // stored mnemonic (the stub returns its fixed vault for any mnemonic).
+    const continued = await app.inject({ method: "POST", url: `/api/tachi/vault/fund/${jobId}/continue`, payload: {} });
+    expect(continued.statusCode).toBe(202);
+    const done = await waitForJob(jobId);
+    expect(done.status).toBe("complete");
+    expect(done.registration?.vtxoId).toBe("d".repeat(64));
   });
 });

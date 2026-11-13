@@ -4,5 +4,7 @@ dist
 *.db
 apps/api/data/*.json
 apps/api/data/*.tmp
+# Fund-job records hold disposable signet vault mnemonics (mode 600); never commit.
+apps/api/.data/
 # A liveness receipt is evidence about one machine at one commit; regenerate it.
 docs/liveness-receipt.json
