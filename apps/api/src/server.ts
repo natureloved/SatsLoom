@@ -24,6 +24,13 @@ import {
 import type { Invoice, Merchant, RouteQuote, Settlement } from "@satsloom/shared";
 import { jsonSafe } from "@satsloom/shared";
 import { PersistentStore, type IdempotencyRecord, type WebhookLog } from "./storage.ts";
+import {
+  continueTachiFundJob,
+  getTachiFundJob,
+  isTachiFundEnabled,
+  parseFundDepositSats,
+  startTachiFundJob,
+} from "./tachi-fund.ts";
 
 export { PersistentStore } from "./storage.ts";
 export type { IdempotencyRecord, StoreData, WebhookLog } from "./storage.ts";
@@ -577,14 +584,14 @@ app.get("/api/tachi/status", async (request) => envelope(request.id, {
   daemon: { ...tachiStatusUnavailable, endpointConfigured: configuredTachiOrigin() !== null },
   validatorCount: 0,
   capabilities: {
-    vaultCreation: "opt-in adapter spike only",
+    vaultCreation: "opt-in fund flow: POST /api/tachi/vault/fund (env-gated, admin token)",
     vaultVerification: "opt-in adapter spike only",
-    deposit: "opt-in regtest spike only; not run by this API",
-    vtxoRegistration: "opt-in regtest spike only; not run by this API",
+    deposit: "opt-in fund flow on Bitcoin signet; faucet-funded, fresh disposable vault per run",
+    vtxoRegistration: "opt-in fund flow on Bitcoin signet",
     vtxoQuery: "opt-in regtest spike only; not run by this API",
     userPsbtSigning: "opt-in regtest spike only; not run by this API",
     kdhtCooperativeSigning: "unavailable",
-    vtxoTransfer: "unavailable",
+    vtxoTransfer: "unavailable — a transfer to a third-party merchant needs 5-of-7 quorum cosignatures and the SDK exposes only cosignRefund",
     unilateralExitPreparation: "opt-in regtest spike only; not run by this API",
   },
 }));
@@ -598,14 +605,78 @@ app.get("/api/tachi/telemetry", async (request) => envelope(request.id, {
   validatorCount: 0,
   validators: [],
   primitives: {
-    taurusVault: "separate opt-in SDK spike; no active demo vault",
+    taurusVault: "opt-in fund flow (vault funding / deposit / register on signet); merchant settlement still runs on Lightning",
     vtxoExecution: "Not executed by the demo settlement API",
     satVM: "Not exercised by this service",
     x402: "HTTP 402 challenge with signed simulation receipt, not payment verification",
   },
+  fundFlow: {
+    enabled: isTachiFundEnabled(),
+    start: "POST /api/tachi/vault/fund (env-gated, admin token)",
+    status: "GET /api/tachi/vault/fund/:jobId",
+    scope: "Vault funding / deposit / register on Bitcoin signet only. A Tachi-settled merchant payment is not offered: it needs 5-of-7 quorum cosignatures and the SDK exposes only cosignRefund.",
+  },
 }, { simulation: true }));
 
 app.get("/api/tachi/validators", async (request) => envelope(request.id, [], { simulation: true }));
+
+/**
+ * Opt-in "Fund Tachi vault" flow (POST /api/tachi/vault/fund).
+ *
+ * Creates a fresh disposable vault, funds it from the public signet faucet,
+ * deposits into the vault P2TR and registers the ledger VTXO — the vault
+ * funding / deposit / register scope of the Tachi integration, and nothing
+ * more. It is env-gated (SATSLOOM_TACHI_FUND_ENABLED=true) and, outside of
+ * tests, requires the admin token, because it spends funds (signet test coins)
+ * and claims from a rate-limited public faucet.
+ *
+ * The run is asynchronous: signet blocks average ~10 minutes, so POST starts
+ * the job and returns 202 with a job id; poll GET until it is complete, failed,
+ * or awaiting-manual-funding (faucet declined — fund the shown address from a
+ * browser and POST continue). The job only progresses while this API process
+ * lives; a serverless deployment that freezes between requests stalls it.
+ *
+ * Deliberately out of scope: a Tachi-settled merchant payment. That needs
+ * 5-of-7 quorum cosignatures and the SDK only exposes cosignRefund, so no
+ * endpoint here claims it.
+ */
+app.post("/api/tachi/vault/fund", async (request: any, reply) => {
+  if (process.env.NODE_ENV !== "test" && !requireAdmin(request, reply)) return;
+  if (!isTachiFundEnabled()) {
+    return reply.code(503).send(envelope(request.id, null, {
+      error: "Tachi vault funding is not enabled: set SATSLOOM_TACHI_FUND_ENABLED=true to opt in. It spends signet test coins from a fresh disposable vault.",
+    }));
+  }
+  let depositSats: bigint;
+  try {
+    depositSats = parseFundDepositSats(request.body?.depositSats);
+  } catch (error) {
+    return reply.code(400).send(envelope(request.id, null, { error: error instanceof Error ? error.message : String(error) }));
+  }
+  const job = startTachiFundJob(depositSats);
+  return reply.code(202).send(envelope(request.id, job));
+});
+
+app.get("/api/tachi/vault/fund/:jobId", async (request: any, reply) => {
+  const job = getTachiFundJob(request.params.jobId);
+  if (!job) return reply.code(404).send(envelope(request.id, null, { error: `No Tachi fund job ${request.params.jobId}` }));
+  return envelope(request.id, job);
+});
+
+app.post("/api/tachi/vault/fund/:jobId/continue", async (request: any, reply) => {
+  if (process.env.NODE_ENV !== "test" && !requireAdmin(request, reply)) return;
+  if (!isTachiFundEnabled()) {
+    return reply.code(503).send(envelope(request.id, null, { error: "Tachi vault funding is not enabled: set SATSLOOM_TACHI_FUND_ENABLED=true to opt in." }));
+  }
+  let job;
+  try {
+    job = continueTachiFundJob(request.params.jobId);
+  } catch (error) {
+    return reply.code(409).send(envelope(request.id, null, { error: error instanceof Error ? error.message : String(error) }));
+  }
+  if (!job) return reply.code(404).send(envelope(request.id, null, { error: `No Tachi fund job ${request.params.jobId}` }));
+  return reply.code(202).send(envelope(request.id, job));
+});
 app.get("/api/merchant", async (request) => envelope(request.id, merchant));
 
 app.get("/api/overview", async (request) => {

@@ -129,3 +129,37 @@ both report `unavailable`. The cooperative leaf needs 5-of-7 validator
 signatures, which requires the quorum to cosign — a transfer was signed by the
 user and verified, but not co-signed and broadcast by the validator set. That is
 reported as unavailable rather than claimed.
+
+## Product fund flow (2026-11-13, signet) — vault funding via the API
+
+The adapter is now wired into the product as an opt-in fund flow
+(`POST /api/tachi/vault/fund`, env-gated by `SATSLOOM_TACHI_FUND_ENABLED=true`,
+admin token required outside tests). One job = one fresh disposable vault:
+create it from the live quorum, fund its P2WPKH wallet from the public signet
+faucet, wait for a real block, deposit into the vault P2TR, register the ledger
+VTXO. Every transaction links to the Tachi Explorer
+(`https://signet.tachibtcscan.com/tx/<hash>`) in the telemetry view, and a
+completed run fires the in-app toast with the registration link. Per-tx explorer
+links also render wherever a settlement carries an `explorerUrl` (receipt cards,
+Operations view). Scope is vault funding / deposit / register only — a
+Tachi-settled merchant payment is not offered and no code claims it, because it
+needs 5-of-7 quorum cosignatures and the SDK exposes only `cosignRefund`.
+
+### Fund-flow run 2026-11-13 (through the new product flow, not the spike)
+
+| Stage | Result |
+|---|---|
+| route | `POST /api/tachi/vault/fund` → 202, job `16e01aae-98a1-418c-9a2e-412fcb35df96` |
+| vault | `tb1p62vd82sxr76jfx4676ltnxwqrd9l867c8e8juvfy4dwkyyn0wt0sk69l7r`, derived from the live 7-validator quorum |
+| funding wallet | `tb1q9fua3vz0hlg7jyfvqth434f39qsaranklrfvzs` |
+| faucet | **Failed from this VM** — `POST faucet.rgbmap.org/v1/faucet` hung; the adapter's 30 s timeout aborted the claim (`This operation was aborted`). No faucet txid exists. Same failure mode as 2026-11-09/10; the user claimed it successfully from a browser on 2026-11-11. |
+| deposit / register | **Not run** — the job stopped at `awaiting-manual-funding`, per the run instructions. No deposit txid, no VTXO id, nothing broadcast. |
+
+To complete this run: fund `tb1q9fua3vz0hlg7jyfvqth434f39qsaranklrfvzs` from a
+signet faucet (e.g. from a browser), then
+`POST /api/tachi/vault/fund/16e01aae-98a1-418c-9a2e-412fcb35df96/continue`. The
+job resumes from the deposit step; no new vault is needed. The mnemonic for
+this vault was generated server-side, never logged or returned, and lives only
+in the API process memory that created it — if that process restarts before the
+run completes, the vault is unrecoverable and the run must start over with a
+fresh vault.

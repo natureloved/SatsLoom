@@ -900,7 +900,11 @@ export function App() {
                             <div className="receipt-grid">
                               <div>
                                 <span className="receipt-label">Demo settlement ID:</span>
-                                <code>{settlement.settlement.txid ?? "Pending"}</code>
+                                {settlement.settlement.explorerUrl && settlement.settlement.txid ? (
+                                  <a href={settlement.settlement.explorerUrl} target="_blank" rel="noreferrer">{settlement.settlement.txid} ↗</a>
+                                ) : (
+                                  <code>{settlement.settlement.txid ?? "Pending"}</code>
+                                )}
                               </div>
                               <div>
                                 <span className="receipt-label">Route Executed:</span>
@@ -924,7 +928,7 @@ export function App() {
 
                 {activeTab === "shop" && <SatsShop onBuyProduct={handleBuyShopProduct} />}
                 {activeTab === "x402" && <X402Sandbox />}
-                {activeTab === "telemetry" && <TachiTelemetryView />}
+                {activeTab === "telemetry" && <TachiTelemetryView onTachiTx={(label, url) => showToast(`${label} ${url}`)} />}
                 {activeTab === "operations" && (
                   <OperationsView
                     transactions={transactions}
@@ -2161,7 +2165,11 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
                           <div className="receipt-grid">
                             <div>
                               <span className="receipt-label">Demo settlement ID:</span>
-                              <code>{settlement.settlement.txid ?? "Pending"}</code>
+                              {settlement.settlement.explorerUrl && settlement.settlement.txid ? (
+                                <a href={settlement.settlement.explorerUrl} target="_blank" rel="noreferrer">{settlement.settlement.txid} ↗</a>
+                              ) : (
+                                <code>{settlement.settlement.txid ?? "Pending"}</code>
+                              )}
                             </div>
                             <div>
                               <span className="receipt-label">Route Executed:</span>
@@ -2185,7 +2193,7 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
 
               {activeTab === "shop" && <SatsShop onBuyProduct={handleBuyShopProduct} />}
               {activeTab === "x402" && <X402Sandbox />}
-              {activeTab === "telemetry" && <TachiTelemetryView />}
+              {activeTab === "telemetry" && <TachiTelemetryView onTachiTx={(label, url) => showToast(`${label} ${url}`)} />}
               {activeTab === "operations" && (
                 <OperationsView
                   transactions={transactions}

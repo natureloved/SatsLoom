@@ -16,7 +16,7 @@ const repoRoot = resolve(here, "..", "..");
 const outfile = join(here, "dist", "server.mjs");
 
 const workspaceEntrypoints = {};
-for (const pkg of ["bolt11", "domain", "rails", "router", "shared"]) {
+for (const pkg of ["bolt11", "domain", "rails", "router", "shared", "tachi-adapter"]) {
   workspaceEntrypoints[`@satsloom/${pkg}`] = join(repoRoot, "packages", pkg, "src", "index.ts");
 }
 

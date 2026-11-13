@@ -249,3 +249,12 @@ describe("scan-lock contention", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("fund-flow helpers", () => {
+  it("refuses deposit, funding address and balance for a vault this instance never created", async () => {
+    const adapter = new TachiSdkAdapter(loadTachiConfig());
+    await expect(adapter.depositToVault("tb1p_unknown", 1000n)).rejects.toThrow(/unknown vault/i);
+    expect(() => adapter.getFundingAddress("tb1p_unknown")).toThrow(/unknown vault/i);
+    await expect(adapter.getFundingWalletBalance("tb1p_unknown")).rejects.toThrow(/unknown vault/i);
+  });
+});

@@ -112,8 +112,10 @@ export function loadTachiConfig(): TachiAdapterConfig {
     );
   }
   // Signet is the default: it is the publicly demonstrable chain, and the SDK's
-  // own DEFAULT_WALLET_NETWORK is already SIGNET.
-  const network: TachiNetwork = networkRaw ?? "signet";
+  // own DEFAULT_WALLET_NETWORK is already SIGNET. The guard above already
+  // rejected an unsupported value; re-checking here keeps the narrowing
+  // explicit instead of relying on control-flow analysis.
+  const network: TachiNetwork = networkRaw && isSupportedTachiNetwork(networkRaw) ? networkRaw : "signet";
   const defaults = NETWORK_DEFAULTS[network];
 
   const daemonRpcUrl = requireHttpUrl(process.env.TACHI_DAEMON_RPC_URL ?? defaults.daemonRpcUrl, "TACHI_DAEMON_RPC_URL");
@@ -137,7 +139,16 @@ export interface TachiAdapter {
   getValidators(): Promise<Validator[]>;
   createVault(input: { mnemonic: string }): Promise<VaultSummary>;
   verifyVault(vault: VaultSummary): Promise<VerificationResult>;
-  depositToVault(vaultId: string, amountSats: bigint): Promise<{ txid: string; amountSats: bigint }>;
+  depositToVault(vaultId: string, amountSats: bigint, options?: { allowRedeposit?: boolean }): Promise<{ txid: string; amountSats: bigint }>;
+  /**
+   * P2WPKH receive address of the vault's funding wallet. Fund this address,
+   * never the vault P2TR: a deposit must be *spent from* a wallet the owner
+   * controls, and faucet coins sitting on the vault address have no
+   * registration path.
+   */
+  getFundingAddress(vaultId: string): string;
+  /** Confirmed balance of the vault's funding wallet, in sats. */
+  getFundingWalletBalance(vaultId: string): Promise<bigint>;
   findConfirmedVaultDeposit(vaultId: string, minimumSats: bigint): Promise<{ txid: string; amountSats: bigint } | null>;
   registerDeposit(vaultId: string, amountSats: bigint): Promise<{ broadcastHash: string; vtxoId: string; vtxo: unknown; feeSats: bigint }>;
   buildAndSignUserTransfer(vaultId: string, vtxoId: string, fundingTxid: string): Promise<{ signed: boolean; feeSats: bigint }>;
@@ -261,7 +272,7 @@ export class TachiSdkAdapter implements TachiAdapter {
     };
   }
 
-  async depositToVault(vaultId: string, amountSats: bigint) {
+  async depositToVault(vaultId: string, amountSats: bigint, options?: { allowRedeposit?: boolean }) {
     const vault = this.vaults.get(vaultId);
     const context = this.depositContexts.get(vaultId);
     if (!vault || !context) throw new Error("Unknown vault; create it before depositing");
@@ -295,8 +306,25 @@ export class TachiSdkAdapter implements TachiAdapter {
       amountSats: effectiveAmount,
       feeRateSatVb: this.config.depositFeeRateSatVb,
       maxFeeRateSatVb: 10,
+      // The SDK guards one deposit per vault; a caller that has already funded
+      // a vault and wants a second deposit must opt in explicitly. The fund
+      // flow creates a fresh vault per run and never sets this.
+      ...(options?.allowRedeposit ? { allowRedeposit: true } : {}),
     });
     return { txid: result.txid, amountSats: result.amountSats };
+  }
+
+  getFundingAddress(vaultId: string): string {
+    const context = this.depositContexts.get(vaultId);
+    if (!context) throw new Error("Unknown vault; create it before reading the funding address");
+    return context.wallet.receiveAddress;
+  }
+
+  async getFundingWalletBalance(vaultId: string): Promise<bigint> {
+    const context = this.depositContexts.get(vaultId);
+    if (!context) throw new Error("Unknown vault; create it before reading the funding wallet balance");
+    await this.withScanLockRetry(() => context.wallet.sync());
+    return BigInt(context.wallet.balance?.confirmed ?? 0n);
   }
 
   /**

@@ -9,12 +9,34 @@ type TelemetryResponse = {
   validators?: Array<{ id: string; endpoint?: string; online: boolean }>;
   daemon?: { reachable?: boolean; checked?: boolean; endpointConfigured?: boolean; message?: string; version?: string; network?: string };
   primitives?: Record<string, string>;
+  fundFlow?: { enabled?: boolean; start?: string; status?: string; scope?: string };
 };
 
-export function TachiTelemetryView() {
+type FundTx = { txid: string; explorerUrl: string; bitcoinExplorerUrl?: string; sats?: string; amountSats?: string };
+type FundJob = {
+  id: string;
+  status: "running" | "awaiting-manual-funding" | "complete" | "failed";
+  stage: string;
+  network?: string;
+  explorerUrl?: string;
+  vaultAddress: string | null;
+  fundingAddress: string | null;
+  depositRequestedSats?: string;
+  faucet: FundTx | null;
+  deposit: FundTx | null;
+  registration: { broadcastHash: string; explorerUrl: string; vtxoId: string; feeSats: string } | null;
+  error: string | null;
+};
+
+export function TachiTelemetryView({ onTachiTx }: { onTachiTx?: (label: string, url: string) => void }) {
   const [telemetry, setTelemetry] = useState<TelemetryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [fundJob, setFundJob] = useState<FundJob | null>(null);
+  const [fundBusy, setFundBusy] = useState(false);
+  const [fundError, setFundError] = useState("");
+  const [adminToken, setAdminToken] = useState("");
+  const notifiedJobRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,12 +65,99 @@ export function TachiTelemetryView() {
     return () => { cancelled = true; };
   }, []);
 
+  // Poll a fund job while it is active. Signet blocks average ~10 minutes, so
+  // a run takes a while; the job record is the source of truth, not this view.
+  useEffect(() => {
+    if (!fundJob || (fundJob.status !== "running" && fundJob.status !== "awaiting-manual-funding")) return;
+    const timer = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/tachi/vault/fund/${fundJob.id}`);
+        const body = await response.json().catch(() => ({}));
+        if (response.ok && body.data) setFundJob(body.data);
+      } catch {
+        // Polling is best-effort; a failed poll leaves the last known state.
+      }
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [fundJob?.id, fundJob?.status]);
+
+  // Fire the toast once, when a run completes — with the registration link.
+  useEffect(() => {
+    if (fundJob?.status === "complete" && fundJob.registration && notifiedJobRef.current !== fundJob.id) {
+      notifiedJobRef.current = fundJob.id;
+      onTachiTx?.("Tachi vault funded — VTXO registered. Verify on the Tachi Explorer:", fundJob.registration.explorerUrl);
+    }
+  }, [fundJob, onTachiTx]);
+
+  const startFund = async () => {
+    setFundError("");
+    setFundBusy(true);
+    try {
+      const response = await fetch("/api/tachi/vault/fund", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(adminToken ? { authorization: `Bearer ${adminToken}` } : {}),
+        },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? body.data?.error ?? `Fund request failed (${response.status})`);
+      notifiedJobRef.current = null;
+      setFundJob(body.data);
+    } catch (cause) {
+      setFundError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setFundBusy(false);
+    }
+  };
+
+  const continueFund = async () => {
+    if (!fundJob) return;
+    setFundError("");
+    setFundBusy(true);
+    try {
+      const response = await fetch(`/api/tachi/vault/fund/${fundJob.id}/continue`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(adminToken ? { authorization: `Bearer ${adminToken}` } : {}),
+        },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? body.data?.error ?? `Continue failed (${response.status})`);
+      setFundJob(body.data);
+    } catch (cause) {
+      setFundError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setFundBusy(false);
+    }
+  };
+
   if (loading) return <div className="loading-state">Loading Tachi integration notes…</div>;
 
   const reachable = telemetry?.daemon?.reachable === true;
   const checked = telemetry?.daemon?.checked === true;
   const endpointColor = checked && reachable ? "#16845b" : "#a05a00";
   const validators = telemetry?.validators ?? [];
+  const fundActive = fundJob !== null && (fundJob.status === "running" || fundJob.status === "awaiting-manual-funding");
+
+  const txRow = (label: string, tx: FundTx | null, extra?: string) => {
+    if (!tx) return null;
+    return (
+      <div className="detail-item">
+        <span>{label}:</span>
+        <span>
+          <a href={tx.explorerUrl} target="_blank" rel="noreferrer">{tx.txid.slice(0, 16)}… ↗</a>
+          {extra ? ` ${extra}` : ""}
+          {tx.bitcoinExplorerUrl && (
+            <> · <a href={tx.bitcoinExplorerUrl} target="_blank" rel="noreferrer">Bitcoin explorer ↗</a></>
+          )}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div className="telemetry-container">
@@ -89,14 +198,14 @@ export function TachiTelemetryView() {
         </div>
         <div className="telemetry-card">
           <span className="card-kicker">Tachi vault execution</span>
-          <h3>Not integrated</h3>
-          <p>Vault, deposit, transfer, and broadcast never touch Tachi. Lightning settlement is separate and runs on the configured node.</p>
+          <h3>{telemetry?.fundFlow?.enabled ? "Fund flow enabled" : "Opt-in fund flow"}</h3>
+          <p>Vault funding, deposit and registration run on Bitcoin signet through the opt-in fund flow below. Merchant settlement still runs on Lightning — a Tachi-settled merchant payment needs quorum cosignatures the SDK does not expose.</p>
         </div>
       </div>
 
       <div className="vault-inspection-section">
         <h3>Integration boundary</h3>
-        <p className="section-note">The repository includes an optional Tachi adapter and an opt-in test/regtest spike. The public API does not contact the daemon; its settlement endpoints only return simulated state and never call vault, deposit, transfer, or broadcast methods.</p>
+        <p className="section-note">The repository includes a Tachi adapter and an opt-in fund flow (POST /api/tachi/vault/fund) that creates a fresh disposable vault, funds it from the public signet faucet, deposits and registers the VTXO. The settlement endpoints still only return simulated state for merchant payments and never call vault, deposit, transfer, or broadcast methods for them.</p>
         <div className="p2tr-details-box">
           <div className="detail-item">
             <span>Tachi daemon endpoint:</span>
@@ -117,6 +226,96 @@ export function TachiTelemetryView() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="vault-inspection-section">
+        <h3>Fund a Tachi vault (opt-in)</h3>
+        <p className="section-note">
+          Creates a fresh disposable vault on Bitcoin signet, funds it from the public signet faucet, deposits into the
+          vault and registers the ledger VTXO. Signet coins have no value. Scope is vault funding / deposit / register
+          only — this does not settle a merchant payment on Tachi, which would need 5-of-7 quorum cosignatures the SDK
+          does not expose. The run takes a while (signet blocks average ~10 minutes) and only progresses while the API
+          process is running; a serverless deployment stalls it. Every transaction links to the Tachi Explorer below.
+        </p>
+        {fundError && <div className="global-error-banner" role="alert">{fundError}</div>}
+        <div className="p2tr-details-box">
+          <div className="detail-item">
+            <span>Admin token:</span>
+            <input
+              type="password"
+              value={adminToken}
+              onChange={(e) => setAdminToken(e.target.value)}
+              placeholder="SATSLOOM_ADMIN_TOKEN (never stored)"
+              autoComplete="off"
+              style={{ flex: 1 }}
+            />
+          </div>
+          <div className="detail-item">
+            <span>Fund flow:</span>
+            <span>{telemetry?.fundFlow?.enabled ? "enabled — POST /api/tachi/vault/fund" : "disabled — set SATSLOOM_TACHI_FUND_ENABLED=true on the API"}</span>
+          </div>
+          <div className="detail-item">
+            <button type="button" onClick={startFund} disabled={fundBusy || fundActive || !telemetry?.fundFlow?.enabled}>
+              {fundBusy ? "Starting…" : fundActive ? "Fund run in progress…" : "Fund Tachi vault"}
+            </button>
+          </div>
+        </div>
+        {fundJob && (
+          <div className="p2tr-details-box" style={{ marginTop: 12 }}>
+            <div className="detail-item">
+              <span>Job:</span>
+              <code>{fundJob.id}</code>
+            </div>
+            <div className="detail-item">
+              <span>Status:</span>
+              <code>{fundJob.status} · {fundJob.stage}</code>
+            </div>
+            {fundJob.vaultAddress && (
+              <div className="detail-item">
+                <span>Vault P2TR:</span>
+                <code>{fundJob.vaultAddress}</code>
+              </div>
+            )}
+            {fundJob.fundingAddress && (
+              <div className="detail-item">
+                <span>Funding wallet:</span>
+                <code>{fundJob.fundingAddress}</code>
+              </div>
+            )}
+            {txRow("Faucet claim", fundJob.faucet, fundJob.faucet?.sats ? `· ${fundJob.faucet.sats} sats` : undefined)}
+            {txRow("Vault deposit", fundJob.deposit, fundJob.deposit?.amountSats ? `· ${fundJob.deposit.amountSats} sats` : undefined)}
+            {fundJob.registration && (
+              <div className="detail-item">
+                <span>VTXO registration:</span>
+                <span>
+                  <a href={fundJob.registration.explorerUrl} target="_blank" rel="noreferrer">{fundJob.registration.broadcastHash.slice(0, 16)}… ↗</a>
+                  {` · VTXO ${fundJob.registration.vtxoId.slice(0, 16)}… · fee ${fundJob.registration.feeSats} sats`}
+                </span>
+              </div>
+            )}
+            {fundJob.status === "awaiting-manual-funding" && (
+              <div className="detail-item">
+                <span>Funding needed:</span>
+                <span>
+                  The faucet declined the claim. Fund <code>{fundJob.fundingAddress}</code> from a signet faucet, then continue — the run resumes from the deposit step.
+                  <button type="button" onClick={continueFund} disabled={fundBusy} style={{ marginLeft: 8 }}>Continue run</button>
+                </span>
+              </div>
+            )}
+            {fundJob.error && (
+              <div className="detail-item">
+                <span>Error:</span>
+                <code>{fundJob.error}</code>
+              </div>
+            )}
+            {fundJob.status === "complete" && (
+              <div className="detail-item">
+                <span>Result:</span>
+                <span>Vault funded, deposit registered. Verify every transaction on the Tachi Explorer via the links above.</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="validators-list-section">

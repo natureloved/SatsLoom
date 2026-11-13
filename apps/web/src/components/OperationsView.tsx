@@ -274,7 +274,11 @@ export function OperationsView({
                   <tr key={tx.id || tx.txid}>
                     <td>
                       <div className="mono-cell">
-                        <code className="code-badge">{(tx.txid ?? tx.id)?.slice(0, 16)}...</code>
+                        {tx.explorerUrl && (tx.txid ?? tx.id) ? (
+                          <a href={tx.explorerUrl} target="_blank" rel="noreferrer" className="code-badge">{(tx.txid ?? tx.id)?.slice(0, 16)}... ↗</a>
+                        ) : (
+                          <code className="code-badge">{(tx.txid ?? tx.id)?.slice(0, 16)}...</code>
+                        )}
                         <button
                           type="button"
                           className="cell-copy-btn"
