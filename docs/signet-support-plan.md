@@ -191,3 +191,20 @@ persisted could cause a repeated deposit on resume; the persist is
 synchronous and happens immediately after each txid is recorded, so that
 window is as small as this design allows. A fresh run through the patched
 flow follows below.
+
+### Fund-flow run 2026-11-13 (through the patched flow — restart-resilient)
+
+| Stage | Result |
+|---|---|
+| route | `POST /api/tachi/vault/fund` → 202, job `8cf6303e-1acf-47df-9652-25f8a0b05c01` |
+| vault | `tb1pqq8uzstell7qkxx2tgjpfqd0yhlm0suvcv78f2d2d0pfgr6n8wzsdq0wg9`, fresh disposable vault (patched flow) |
+| funding wallet | `tb1qp4uqqjte740vkyensr7mkffsrdjh2wyy5fvc6m` |
+| faucet | **Failed from this VM again** — the claim hung and the adapter's 30 s timeout aborted it (`This operation was aborted`). Job parked in `awaiting-manual-funding`; nothing broadcast. |
+| restart proof | The API server was killed and restarted mid-run: the job was restored from its mode-600 file with the same vault and funding addresses, still awaiting manual funding. The previous run's failure mode is fixed. |
+| deposit / register | **Not run yet** — awaiting manual funding. |
+
+To complete this run: fund `tb1qp4uqqjte740vkyensr7mkffsrdjh2wyy5fvc6m` from a
+signet faucet (e.g. from a browser), then
+`POST /api/tachi/vault/fund/8cf6303e-1acf-47df-9652-25f8a0b05c01/continue`. The
+mnemonic for this vault is persisted in the server's mode-600 job file, so a
+restart no longer strands it.
