@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { CustomerCheckoutModal } from "./components/QRCodeModal";
 import { ThemeToggle, useTheme } from "./components/ThemeProvider";
 import { LiveSignetCheckout, type LiveInvoiceResponse } from "./components/LiveSignetCheckout";
+import { PayVaultCheckout } from "./components/PayVaultCheckout";
 import { RouteVisualizer } from "./components/RouteVisualizer";
 import { SatsShop } from "./components/SatsShop";
 import { X402Sandbox } from "./components/X402Sandbox";
@@ -31,7 +32,7 @@ const LAB_ROUTES = [
 ];
 
 const TICKER_ITEMS = [
-  "<b>LIVE</b> · invoices settle over real Lightning",
+  "<b>LIVE</b> · invoices settle as BTC signet payments into the merchant's Tachi vault",
   "paid invoices are credited only when the node reveals the <b>preimage</b>",
   "x402 challenges return a <i>BOLT11 invoice</i> instead of a demo receipt",
   "every settlement here is a <b>confirmed payment on signet</b>",
@@ -1114,10 +1115,11 @@ export function App() {
                 <span className="scramble l2">{scramble2}</span>
               </h1>
               <p className="lede rv d1">
-                SatsLoom issues real BOLT11 invoices, takes real Lightning payments on signet, and credits a
-                payment only when the node reveals a preimage that hashes to the invoice's payment hash.
-                Invoice lifecycles, route scoring, and an L402 paywall all run against that same rail — the
-                coins are testnet, but every settlement you see is a payment a Lightning node actually made.
+                SatsLoom settles merchant invoices as BTC payments on Bitcoin signet: the customer
+                pays L1 BTC into the merchant's Tachi vault and the API registers it as a VTXO.
+                Lightning checkout stays live as a second rail — a payment there is credited only
+                when the node reveals a preimage that hashes to the invoice's payment hash. The
+                coins are testnet, but every settlement you see is a payment that actually moved.
               </p>
               <div className="cta-row rv d2">
                 <a className="btn primary" href="#selfhost">
@@ -1154,7 +1156,7 @@ export function App() {
               <div className="stats rv d4">
                 <div className="stat">
                   <span className="sv"><b className="count">{health?.rail?.network?.toUpperCase() ?? "—"}</b></span>
-                  <span className="sl">network · real Lightning</span>
+                  <span className="sl">network · BTC signet · Tachi vault</span>
                 </div>
                 <div className="stat">
                   <span className="sv"><b className="count">{livePaidCount > 0 ? String(livePaidCount) : "1"}</b></span>
@@ -1259,13 +1261,17 @@ export function App() {
           <div className="wrap">
             <div className="sec-head">
               <div className="kicker">// 01 · PAY IT FOR REAL</div>
-              <h2 className="lm"><span>Issue a real invoice and pay it over Lightning.</span></h2>
+              <h2 className="lm"><span>Issue a real invoice and pay it with BTC on signet.</span></h2>
               <p className="sub rv">
-                This talks to the configured Lightning node, gets a real BOLT11 invoice, and watches the rail for
-                settlement. It credits a payment only when the preimage the node reveals hashes to the invoice's
-                payment hash — so what you see is a payment the node confirmed, not a button that says it worked.
+                Merchant settlement now runs on Bitcoin signet: pay the invoice amount in L1 BTC to the
+                merchant's Tachi vault and the API registers it as a VTXO — the payment settles
+                into the vault, with an explorer link for every transaction. No quorum cosign is
+                needed, because a deposit is a plain Bitcoin transaction. The Lightning checkout
+                below stays live as a second rail.
               </p>
             </div>
+
+            <PayVaultCheckout onPaid={(label, url) => showToast(`${label} ${url}`)} />
 
             <div className="live-panel panel rv d1">
               <div className="live-panel-head">
@@ -1872,7 +1878,7 @@ This sandbox demonstrates a 402 challenge and a short-lived signed demo receipt.
             <dl className="spec-grid rv">
               <div className="spec"><dt>API</dt><dd><b>Fastify / Node.js</b> · TypeScript</dd></div>
               <div className="spec"><dt>Frontend</dt><dd><b>React / Vite</b></dd></div>
-              <div className="spec"><dt>Settlement</dt><dd><b>Real Lightning</b> · signet sats</dd></div>
+              <div className="spec"><dt>Settlement</dt><dd><b>BTC signet · Tachi vault</b> · Lightning also live</dd></div>
               <div className="spec"><dt>Route model</dt><dd>Rail node view · <b>live</b></dd></div>
               <div className="spec"><dt>Payment proof</dt><dd><b>sha256(preimage) == payment hash</b></dd></div>
               <div className="spec"><dt>Persistence</dt><dd>Local JSON / Vercel process memory</dd></div>

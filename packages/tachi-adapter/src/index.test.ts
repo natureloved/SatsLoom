@@ -257,4 +257,12 @@ describe("fund-flow helpers", () => {
     expect(() => adapter.getFundingAddress("tb1p_unknown")).toThrow(/unknown vault/i);
     await expect(adapter.getFundingWalletBalance("tb1p_unknown")).rejects.toThrow(/unknown vault/i);
   });
+
+  it("refuses the pay-to-vault helpers for a vault this instance never created", async () => {
+    const adapter = new TachiSdkAdapter(loadTachiConfig());
+    await expect(adapter.listConfirmedVaultDeposits("tb1p_unknown")).rejects.toThrow(/unknown vault/i);
+    await expect(adapter.findConfirmedVaultDeposit("tb1p_unknown", 1000n)).rejects.toThrow(/unknown vault/i);
+    await expect(adapter.listUnspentVtxos("tb1p_unknown")).rejects.toThrow(/unknown vault/i);
+    await expect(adapter.depositFromVaultToVault("tb1p_unknown", "tb1p_also_unknown", 1000n)).rejects.toThrow(/unknown vault/i);
+  });
 });

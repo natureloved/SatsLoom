@@ -39,7 +39,9 @@ import { TachiSdkAdapter, type TachiAdapter } from "@satsloom/tachi-adapter";
  * Merchant settlement is out of scope here on purpose: a Tachi-settled payment
  * to a third-party merchant needs 5-of-7 quorum cosignatures and the SDK only
  * exposes cosignRefund, so this flow covers vault funding / deposit / register
- * / exit only. No code path here claims a Tachi merchant transfer.
+ * / exit only. No code path here claims a Tachi merchant transfer. Merchant
+ * settlement lives in `tachi-pay-vault.ts` instead: the customer deposits L1
+ * BTC into the merchant's persistent vault, which needs no cosign at all.
  */
 
 export const TACHI_FUND_ENABLED_ENV = "SATSLOOM_TACHI_FUND_ENABLED";

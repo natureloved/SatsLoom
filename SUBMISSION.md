@@ -1,11 +1,14 @@
 # SatsLoom — Project Status
 
-> **SatsLoom is a merchant payment product for Bitcoin signet with verifiable Lightning settlement and a transparent simulation surface.**
+> **SatsLoom is a merchant payment product for Bitcoin signet that settles invoices as BTC signet payments into the merchant's Tachi vault, with a live Lightning rail as a second option and a transparent simulation surface.**
 
-SatsLoom issues real BOLT11 invoices on Bitcoin Signet via its own Lightning node, watches the rail for settlement, and credits a payment only when the node reveals a preimage that cryptographically hashes to the invoice's payment hash (`sha256(preimage) == paymentHash`). It also maintains a parallel simulation surface so route selection, state transitions, and liquidity models can be inspected without moving funds.
+SatsLoom issues invoices and settles them by pay-to-vault: the customer deposits L1 BTC (signet) into the merchant's Tachi vault, the API watches the vault address, registers the deposit as a VTXO (TxVaultOpen), and marks the invoice paid — with an explorer link for every transaction. It also runs a live Lightning rail (real BOLT11 invoices on Bitcoin Signet via its own node, credited only when the node reveals a preimage that cryptographically hashes to the invoice's payment hash) and maintains a parallel simulation surface so route selection, state transitions, and liquidity models can be inspected without moving funds.
+
+Pay-to-vault settles *into* the merchant's vault. It is not a Tachi transfer to a third party — that would need 5-of-7 quorum cosignatures and the SDK exposes only `cosignRefund` — and no code here claims one.
 
 ## What is Live & Implemented
 
+- **Pay-to-vault merchant settlement on Signet:** `POST /api/tachi/invoices/:id/pay-vault` starts a watcher on the merchant's persistent Tachi vault (`POST /api/tachi/merchant-vault`); an exact-amount L1 BTC deposit to the vault address is registered as a VTXO and the invoice is marked paid, with the deposit linked on mempool.space and the registration on the Tachi Explorer. See `docs/signet-support-plan.md` for the verified proof and its limits (including the same-amount limitation).
 - **Real BOLT11 Invoices on Signet:** Native spec-vector-tested BOLT11 codec (`packages/bolt11`) generates valid `lntbs…` invoices over LND's REST API (`POST /api/live/invoices`).
 - **Cryptographic Preimage Proof:** Pure fail-closed `verifyPayment()` rule in `packages/rails`: credit requires `sha256(preimage) == paymentHash`. Missing or mismatched preimages fail closed.
 - **Single-Claim Deduplication:** Process-level `CreditRegistry` ensures preimages can never be credited twice.
@@ -28,6 +31,7 @@ Both payment rails run on **Bitcoin signet** by default, so a demonstration happ
 
 | Rail | Network | How it is funded |
 |---|---|---|
+| Tachi pay-to-vault | signet | customer deposits L1 BTC to the merchant vault P2TR; API registers it as a VTXO |
 | Lightning | signet | LND neutrino node + a second paying node |
 | Tachi / TAURUS | signet | public no-auth signet faucet → P2WPKH wallet → vault P2TR |
 
@@ -37,6 +41,7 @@ Signet coins have no value. Every surface that reports a rail as live says so.
 
 | Area | Status | Verification |
 |---|---|---|
+| **Pay-to-Vault Settlement** | ✅ Live | `POST /api/tachi/invoices/:id/pay-vault` → deposit confirmed on Bitcoin; registration committed on the Tachi ledger (`docs/signet-support-plan.md`) |
 | **BOLT11 Codec** | ✅ Live | Spec vectors reproduced byte-for-byte in `packages/bolt11/src/index.test.ts` |
 | **Signet Lightning Invoices** | ✅ Live | `POST /api/live/invoices` → `lntbs…` |
 | **Payment Detection & Proof** | ✅ Live | `verifyPayment()`: `sha256(preimage) == paymentHash` |
@@ -54,7 +59,7 @@ Signet coins have no value. Every surface that reports a rail as live says so.
 
 ```sh
 npm ci
-npm test              # 108 tests, 10 suites passing hermetically
+npm test              # 136 tests, 13 suites passing hermetically
 npm run audit:liveness # Capability verification audit
 npm run dev           # API on :3001, Web on :5174
 ```

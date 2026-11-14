@@ -16,6 +16,8 @@
     "src/server.ts",
     "src/storage.ts",
     "src/tachi-fund.ts",
+    "src/tachi-merchant-vault.ts",
+    "src/tachi-pay-vault.ts",
     "../../packages/shared/src/index.ts",
     "../../packages/router/src/index.ts",
     "../../packages/domain/src/index.ts",

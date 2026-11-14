@@ -164,7 +164,7 @@ export function TachiTelemetryView({ onTachiTx }: { onTachiTx?: (label: string, 
       <div className="telemetry-header">
         <div>
           <h2>Tachi SDK integration status</h2>
-          <p className="telemetry-subtitle">The public API does not query Tachi. This demo does not use Tachi to execute invoice payments or settlements.</p>
+          <p className="telemetry-subtitle">Merchant settlement runs on Tachi pay-to-vault: a customer deposits L1 BTC (signet) into the merchant's Tachi vault, and the API registers it as a VTXO. This is not a Tachi transfer to a third party — that would need 5-of-7 quorum cosignatures the SDK does not expose.</p>
         </div>
         <div className="telemetry-badge-row">
           <span className="net-pill">{telemetry?.network ?? "network unknown"}</span>
@@ -199,13 +199,13 @@ export function TachiTelemetryView({ onTachiTx }: { onTachiTx?: (label: string, 
         <div className="telemetry-card">
           <span className="card-kicker">Tachi vault execution</span>
           <h3>{telemetry?.fundFlow?.enabled ? "Fund flow enabled" : "Opt-in fund flow"}</h3>
-          <p>Vault funding, deposit and registration run on Bitcoin signet through the opt-in fund flow below. Merchant settlement still runs on Lightning — a Tachi-settled merchant payment needs quorum cosignatures the SDK does not expose.</p>
+          <p>Vault funding, deposit and registration run on Bitcoin signet through the opt-in fund flow below — and merchant invoices settle the same way, as BTC signet payments into the merchant's Tachi vault (pay-to-vault). A Tachi transfer to a third party is still not offered: it needs quorum cosignatures the SDK does not expose.</p>
         </div>
       </div>
 
       <div className="vault-inspection-section">
         <h3>Integration boundary</h3>
-        <p className="section-note">The repository includes a Tachi adapter and an opt-in fund flow (POST /api/tachi/vault/fund) that creates a fresh disposable vault, funds it from the public signet faucet, deposits and registers the VTXO. The settlement endpoints still only return simulated state for merchant payments and never call vault, deposit, transfer, or broadcast methods for them.</p>
+        <p className="section-note">The repository includes a Tachi adapter, an opt-in fund flow (POST /api/tachi/vault/fund) that creates a fresh disposable vault, funds it from the public signet faucet, deposits and registers the VTXO — and pay-to-vault merchant settlement (POST /api/tachi/invoices/:id/pay-vault), where an invoice is paid with L1 BTC into the merchant's persistent Tachi vault and the deposit is registered as a VTXO. No endpoint executes a VTXO transfer: that needs 5-of-7 quorum cosignatures the SDK does not expose.</p>
         <div className="p2tr-details-box">
           <div className="detail-item">
             <span>Tachi daemon endpoint:</span>
@@ -217,7 +217,7 @@ export function TachiTelemetryView({ onTachiTx }: { onTachiTx?: (label: string, 
           </div>
           <div className="detail-item">
             <span>Tachi settlement:</span>
-            <code>not integrated · no vault, deposit, transfer, or broadcast calls</code>
+            <code>pay-to-vault · BTC signet into the merchant vault (no VTXO transfer)</code>
           </div>
           {telemetry?.explorerUrl && (
             <div className="detail-item">

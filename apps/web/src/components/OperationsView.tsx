@@ -507,13 +507,15 @@ export function OperationsView({
           <div className="modal-content json-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-header-left">
-                <div className="modal-icon">{selectedItem?.verification === "preimage-sha256" ? "⚡" : "📜"}</div>
+                <div className="modal-icon">{selectedItem?.verification === "preimage-sha256" ? "⚡" : selectedItem?.verification === "tachi-vtxo-registered" ? "₿" : "📜"}</div>
                 <div>
-                  <h3>{selectedItem?.verification === "preimage-sha256" ? "Verified Settlement Proof" : "Demo Record Details"}</h3>
+                  <h3>{selectedItem?.verification === "preimage-sha256" || selectedItem?.verification === "tachi-vtxo-registered" ? "Verified Settlement Proof" : "Demo Record Details"}</h3>
                   <p className="modal-subtitle">
                     {selectedItem?.verification === "preimage-sha256"
                       ? "Verified Bitcoin Lightning settlement · preimage-sha256 cryptographic proof"
-                      : "Application state only · not a cryptographic Bitcoin settlement record"}
+                      : selectedItem?.verification === "tachi-vtxo-registered"
+                        ? "Verified Tachi vault settlement · deposit registered as a VTXO on the signet ledger"
+                        : "Application state only · not a cryptographic Bitcoin settlement record"}
                   </p>
                 </div>
               </div>

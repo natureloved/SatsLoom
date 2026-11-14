@@ -32,6 +32,19 @@ import {
   restoreTachiFundJobs,
   startTachiFundJob,
 } from "./tachi-fund.ts";
+import {
+  ensureMerchantVault,
+  getMerchantVault,
+  restoreMerchantVault,
+} from "./tachi-merchant-vault.ts";
+import {
+  getTachiPayVaultPayment,
+  restoreTachiPayVaultPayments,
+  retryTachiPayVaultPayment,
+  startTachiPayVaultPayment,
+  tachiPayVaultDeadlineMs,
+  type TachiPayVaultPayment,
+} from "./tachi-pay-vault.ts";
 
 export { PersistentStore } from "./storage.ts";
 export type { IdempotencyRecord, StoreData, WebhookLog } from "./storage.ts";
@@ -220,6 +233,77 @@ async function onRailObservation(observation: PaymentObservation) {
   publishInvoiceEvent(invoiceId, "payment.received", received);
   persist();
   app.log?.info?.(received, "real lightning payment credited");
+}
+
+/**
+ * The one place a pay-to-vault settlement is credited — the Tachi counterpart
+ * to onRailObservation. The watcher reports a registered deposit, this turns
+ * it into a confirmed invoice with the registration as its settlement
+ * evidence. It never invents money: the VTXO id and broadcast hash come from
+ * the adapter's registerDeposit, and the invoice is only confirmed once they
+ * exist. A second call for the same payment is a no-op (the invoice is
+ * already confirmed and the settlement already recorded).
+ */
+async function onTachiPayVaultSettled(payment: TachiPayVaultPayment) {
+  const aggregate = aggregates.get(payment.invoiceId);
+  if (!aggregate) {
+    app.log?.warn?.({ paymentId: payment.id, invoiceId: payment.invoiceId }, "pay-to-vault settled for an unknown invoice; settlement recorded on the payment only");
+    return;
+  }
+  if (!payment.registration) {
+    throw new Error(`pay-to-vault payment ${payment.id} has no registration; it cannot settle invoice ${payment.invoiceId}`);
+  }
+  try {
+    confirmPayment(aggregate);
+  } catch (error) {
+    // The invoice may have expired while signet was slow (the pay-vault
+    // intent extends the expiry to the watch deadline, so this should not
+    // happen). The merchant already holds the VTXO — losing the payment
+    // would be worse than forcing the state — so record it as confirmed
+    // and say so loudly instead of dropping a real settlement.
+    app.log?.warn?.({ err: error, invoiceId: payment.invoiceId, paymentId: payment.id }, "pay-to-vault confirmPayment failed; forcing PAYMENT_CONFIRMED because the VTXO is registered");
+    aggregate.invoice.status = "confirmed";
+    aggregate.lifecycle = "PAYMENT_CONFIRMED";
+  }
+  aggregate.settlement = {
+    id: crypto.randomUUID(),
+    invoiceId: payment.invoiceId,
+    routeId: "tachi-pay-vault",
+    status: "settled",
+    txid: payment.registration.broadcastHash,
+    vtxoId: payment.registration.vtxoId,
+    explorerUrl: payment.registration.explorerUrl,
+    simulation: false,
+  };
+  payouts.set(payment.invoiceId, {
+    id: crypto.randomUUID(),
+    invoiceId: payment.invoiceId,
+    paymentId: payment.id,
+    amountSats: BigInt(payment.amountSats),
+    depositTxid: payment.deposit?.txid,
+    registrationHash: payment.registration.broadcastHash,
+    vtxoId: payment.registration.vtxoId,
+    status: "credited",
+    verification: "tachi-vtxo-registered",
+    rail: "tachi-pay-vault",
+    network: payment.network,
+    simulation: false,
+    createdAt: new Date().toISOString(),
+  });
+  publishInvoiceEvent(payment.invoiceId, "payment.received", {
+    invoiceId: payment.invoiceId,
+    paymentId: payment.id,
+    amountSats: payment.amountSats,
+    depositTxid: payment.deposit?.txid,
+    registrationHash: payment.registration.broadcastHash,
+    vtxoId: payment.registration.vtxoId,
+    rail: "tachi-pay-vault",
+    network: payment.network,
+    verified: true,
+    simulation: false,
+  });
+  persist();
+  app.log?.info?.({ invoiceId: payment.invoiceId, paymentId: payment.id, vtxoId: payment.registration.vtxoId }, "pay-to-vault invoice settled into merchant vault");
 }
 
 export function isValidAdminToken(providedToken: string | undefined, expectedToken = adminToken): boolean {
@@ -593,6 +677,7 @@ app.get("/api/tachi/status", async (request) => envelope(request.id, {
     userPsbtSigning: "opt-in regtest spike only; not run by this API",
     kdhtCooperativeSigning: "unavailable",
     vtxoTransfer: "unavailable — a transfer to a third-party merchant needs 5-of-7 quorum cosignatures and the SDK exposes only cosignRefund",
+    merchantSettlement: "pay-to-vault: a customer deposits L1 BTC (signet) into the merchant's persistent Tachi vault (POST /api/tachi/invoices/:id/pay-vault); the API watches, registers the deposit as a VTXO, and marks the invoice paid. No transfer, no cosign.",
     unilateralExitPreparation: "opt-in regtest spike only; not run by this API",
   },
 }));
@@ -606,8 +691,8 @@ app.get("/api/tachi/telemetry", async (request) => envelope(request.id, {
   validatorCount: 0,
   validators: [],
   primitives: {
-    taurusVault: "opt-in fund flow (vault funding / deposit / register on signet); merchant settlement still runs on Lightning",
-    vtxoExecution: "Not executed by the demo settlement API",
+    taurusVault: "opt-in fund flow (vault funding / deposit / register on signet) and pay-to-vault merchant settlement (BTC signet payment into the merchant's Tachi vault)",
+    vtxoExecution: "Pay-to-vault settlement: deposit watched, registered as a VTXO, invoice marked paid. No VTXO transfer is executed.",
     satVM: "Not exercised by this service",
     x402: "HTTP 402 challenge with signed simulation receipt, not payment verification",
   },
@@ -615,7 +700,14 @@ app.get("/api/tachi/telemetry", async (request) => envelope(request.id, {
     enabled: isTachiFundEnabled(),
     start: "POST /api/tachi/vault/fund (env-gated, admin token)",
     status: "GET /api/tachi/vault/fund/:jobId",
-    scope: "Vault funding / deposit / register on Bitcoin signet only. A Tachi-settled merchant payment is not offered: it needs 5-of-7 quorum cosignatures and the SDK exposes only cosignRefund.",
+    scope: "Vault funding / deposit / register on Bitcoin signet only. A Tachi-settled merchant payment is not offered as a transfer: it needs 5-of-7 quorum cosignatures and the SDK exposes only cosignRefund.",
+  },
+  payVault: {
+    enabled: isTachiFundEnabled(),
+    merchantVault: "POST /api/tachi/merchant-vault (env-gated, admin token) — one persistent vault for the demo merchant",
+    start: "POST /api/tachi/invoices/:id/pay-vault (env-gated, admin token)",
+    status: "GET /api/tachi/invoices/:id/pay-vault/:paymentId",
+    scope: "Merchant settlement as BTC signet payment into the merchant's Tachi vault: the customer deposits L1 BTC to the vault address, the API registers it as a VTXO and marks the invoice paid. This is not a Tachi transfer to a third party.",
   },
 }, { simulation: true }));
 
@@ -679,6 +771,104 @@ app.post("/api/tachi/vault/fund/:jobId/continue", async (request: any, reply) =>
   }
   if (!job) return reply.code(404).send(envelope(request.id, null, { error: `No Tachi fund job ${request.params.jobId}` }));
   return reply.code(202).send(envelope(request.id, job));
+});
+
+/**
+ * Pay-to-vault merchant settlement.
+ *
+ * A customer pays an invoice by depositing L1 BTC (signet) straight into the
+ * merchant's Tachi vault; the API watches the vault address, registers the
+ * deposit as a VTXO (TxVaultOpen), and marks the invoice paid. This is the
+ * alternative to a cooperative Tachi transfer, which needs 5-of-7 quorum
+ * cosignatures the SDK does not expose: a deposit is a plain Bitcoin
+ * transaction the customer's wallet signs alone. The honest claim is
+ * "payment settles into the merchant's Tachi vault" — never a Tachi transfer
+ * to a third party.
+ *
+ * The merchant vault is created once (POST /api/tachi/merchant-vault) and
+ * reused for every invoice. A payment intent (POST …/pay-vault) starts a
+ * background watcher; poll GET until it is paid or failed. The invoice's
+ * expiry is extended to the watch deadline when the intent is created, so a
+ * slow signet block cannot expire the invoice out from under a payment that
+ * is already on its way. A failed payment can be retried explicitly.
+ *
+ * Same-amount limitation: two invoices for the same amount cannot both be
+ * settled through one merchant vault unless the first payment's VTXO is spent
+ * first (registration is keyed by amount and the VTXO record carries no
+ * deposit txid). The runner fails the second payment loudly rather than
+ * crediting the wrong VTXO.
+ */
+app.post("/api/tachi/merchant-vault", async (request: any, reply) => {
+  if (process.env.NODE_ENV !== "test" && !requireAdmin(request, reply)) return;
+  if (!isTachiFundEnabled()) {
+    return reply.code(503).send(envelope(request.id, null, {
+      error: "Tachi merchant settlement is not enabled: set SATSLOOM_TACHI_FUND_ENABLED=true to opt in. It creates a persistent merchant vault on Bitcoin signet.",
+    }));
+  }
+  try {
+    const vault = await ensureMerchantVault();
+    return envelope(request.id, vault);
+  } catch (error) {
+    return reply.code(502).send(envelope(request.id, null, { error: error instanceof Error ? error.message : String(error) }));
+  }
+});
+
+app.get("/api/tachi/merchant-vault", async (request: any, reply) => {
+  const vault = getMerchantVault();
+  if (!vault) return reply.code(404).send(envelope(request.id, null, { error: "No merchant vault exists yet; create one first (POST /api/tachi/merchant-vault)" }));
+  return envelope(request.id, vault);
+});
+
+app.post("/api/tachi/invoices/:id/pay-vault", async (request: any, reply) => {
+  if (process.env.NODE_ENV !== "test" && !requireAdmin(request, reply)) return;
+  if (!isTachiFundEnabled()) {
+    return reply.code(503).send(envelope(request.id, null, { error: "Tachi merchant settlement is not enabled: set SATSLOOM_TACHI_FUND_ENABLED=true to opt in." }));
+  }
+  const aggregate = aggregates.get(request.params.id);
+  if (!aggregate) return reply.code(404).send(envelope(request.id, null, { error: "invoice not found" }));
+  if (aggregate.invoice.status !== "pending") {
+    return reply.code(409).send(envelope(request.id, null, { error: `Invoice is ${aggregate.invoice.status}; only a pending invoice can be paid through the merchant vault` }));
+  }
+  if (!getMerchantVault()) {
+    return reply.code(409).send(envelope(request.id, null, { error: "No merchant vault exists yet; create one first (POST /api/tachi/merchant-vault)" }));
+  }
+  // Signet blocks average ~10 minutes and the watcher waits up to the pay-vault
+  // deadline; the invoice's 15-minute expiry would otherwise expire it out
+  // from under a payment already on its way. Extend it to the watch deadline.
+  aggregate.invoice.expiresAt = new Date(Date.now() + tachiPayVaultDeadlineMs()).toISOString();
+  let payment;
+  try {
+    payment = startTachiPayVaultPayment(aggregate.invoice.id, aggregate.invoice.amountSats, onTachiPayVaultSettled);
+  } catch (error) {
+    return reply.code(409).send(envelope(request.id, null, { error: error instanceof Error ? error.message : String(error) }));
+  }
+  persist();
+  return reply.code(202).send(envelope(request.id, payment));
+});
+
+app.get("/api/tachi/invoices/:id/pay-vault/:paymentId", async (request: any, reply) => {
+  const payment = getTachiPayVaultPayment(request.params.paymentId);
+  if (!payment || payment.invoiceId !== request.params.id) {
+    return reply.code(404).send(envelope(request.id, null, { error: `No pay-to-vault payment ${request.params.paymentId} for invoice ${request.params.id}` }));
+  }
+  return envelope(request.id, payment);
+});
+
+app.post("/api/tachi/invoices/:id/pay-vault/:paymentId/retry", async (request: any, reply) => {
+  if (process.env.NODE_ENV !== "test" && !requireAdmin(request, reply)) return;
+  if (!isTachiFundEnabled()) {
+    return reply.code(503).send(envelope(request.id, null, { error: "Tachi merchant settlement is not enabled: set SATSLOOM_TACHI_FUND_ENABLED=true to opt in." }));
+  }
+  let payment;
+  try {
+    payment = retryTachiPayVaultPayment(request.params.paymentId, onTachiPayVaultSettled);
+  } catch (error) {
+    return reply.code(409).send(envelope(request.id, null, { error: error instanceof Error ? error.message : String(error) }));
+  }
+  if (!payment || payment.invoiceId !== request.params.id) {
+    return reply.code(404).send(envelope(request.id, null, { error: `No pay-to-vault payment ${request.params.paymentId} for invoice ${request.params.id}` }));
+  }
+  return reply.code(202).send(envelope(request.id, payment));
 });
 app.get("/api/merchant", async (request) => envelope(request.id, merchant));
 
@@ -1357,6 +1547,22 @@ if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
     // Watching begins here rather than at import time, so a test suite can build the app
     // without starting background timers.
     restoreTachiFundJobs();
+    // Restore the merchant vault and any unfinished pay-to-vault payments the
+    // same way, so a restart resumes them instead of stranding the vault or
+    // losing a payment that is already on its way. The settlement callback is
+    // re-attached, so a resumed payment can still confirm its invoice. If the
+    // vault cannot be restored, the payments are left alone (still persisted
+    // as watching) rather than resumed into a failure: they resume on the
+    // next restart, once the vault is back.
+    void (async () => {
+      let vaultRestored = false;
+      try {
+        vaultRestored = (await restoreMerchantVault()) !== null;
+      } catch (error) {
+        app.log?.error?.({ err: error }, "merchant vault restore failed; pay-to-vault payments will not resume until the vault is restored");
+      }
+      if (vaultRestored) restoreTachiPayVaultPayments(onTachiPayVaultSettled);
+    })();
     watcher.start();
   }).catch((error) => {
     app.log.error(error);

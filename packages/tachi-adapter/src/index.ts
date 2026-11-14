@@ -150,6 +150,28 @@ export interface TachiAdapter {
   /** Confirmed balance of the vault's funding wallet, in sats. */
   getFundingWalletBalance(vaultId: string): Promise<bigint>;
   findConfirmedVaultDeposit(vaultId: string, minimumSats: bigint): Promise<{ txid: string; amountSats: bigint } | null>;
+  /**
+   * Every confirmed unspent output at the vault's P2TR address. The pay-to-vault
+   * flow needs the full list: a merchant vault takes many deposits, so a single
+   * "first match" cannot tell a new payment from one already settled.
+   */
+  listConfirmedVaultDeposits(vaultId: string): Promise<Array<{ txid: string; amountSats: bigint }>>;
+  /**
+   * Unspent VTXOs owned by the vault's key. The pay-to-vault flow reads this
+   * before registering a deposit, so a registration that returns an already
+   * existing VTXO can be told apart from the fresh one this deposit mints.
+   */
+  listUnspentVtxos(vaultId: string): Promise<Array<{ id: string; amountSats: bigint }>>;
+  /**
+   * Pays `amountSats` from one vault's funding wallet into another vault's P2TR.
+   * This is the pay-to-vault primitive: the source is any P2WPKH wallet (a
+   * customer's), the destination is the merchant's vault, and no quorum cosign
+   * is involved — a deposit is a plain L1 transaction the source wallet signs
+   * alone. The destination is a receiving vault, so the one-deposit guard is
+   * bypassed (it would otherwise refuse every deposit after the first); the
+   * caller tracks which deposit txids have already been settled.
+   */
+  depositFromVaultToVault(sourceVaultId: string, targetVaultId: string, amountSats: bigint): Promise<{ txid: string; amountSats: bigint }>;
   registerDeposit(vaultId: string, amountSats: bigint): Promise<{ broadcastHash: string; vtxoId: string; vtxo: unknown; feeSats: bigint }>;
   buildAndSignUserTransfer(vaultId: string, vtxoId: string, fundingTxid: string): Promise<{ signed: boolean; feeSats: bigint }>;
   buildAndSignUnilateralExit(vaultId: string, fundingTxid: string): Promise<{ signed: boolean; finalized: boolean; feeSats: bigint; csvBlocks: number }>;
@@ -272,6 +294,27 @@ export class TachiSdkAdapter implements TachiAdapter {
     };
   }
 
+  /**
+   * The amount that actually lands for a requested deposit from this wallet.
+   * A faucet pays a fixed amount, so the requested deposit can easily exceed
+   * what the wallet holds. Depositing the whole spendable balance is the useful
+   * interpretation here: the caller asked for "as much as we have", and failing
+   * with a confusing "insufficient funds" against a wallet that plainly has
+   * funds helps nobody.
+   *
+   * The fee has to come out of that balance, not on top of it. Worse, the SDK's
+   * coin selection will not build a change output below its 1000-sat dust floor
+   * — it only accepts a change-less spend when the inputs happen to cover amount
+   * + the smaller no-change fee exactly. So the amount that actually lands has
+   * to leave room for the fee *and* a spendable change output, or the selection
+   * fails even though the balance looks sufficient.
+   */
+  private effectiveDepositAmount(wallet: { balance?: { confirmed?: bigint } }, amountSats: bigint): bigint {
+    const spendable = wallet.balance?.confirmed ?? 0n;
+    const estimatedFeeSats = BigInt(Math.ceil((10.5 + 68 + 31 + 31) * this.config.depositFeeRateSatVb));
+    return amountSats > spendable ? spendable - estimatedFeeSats - SAFE_DUST_THRESHOLD_SATS : amountSats;
+  }
+
   async depositToVault(vaultId: string, amountSats: bigint, options?: { allowRedeposit?: boolean }) {
     const vault = this.vaults.get(vaultId);
     const context = this.depositContexts.get(vaultId);
@@ -283,21 +326,7 @@ export class TachiSdkAdapter implements TachiAdapter {
     // neighbour's scan does not fail our deposit.
     await this.withScanLockRetry(() => context.wallet.sync());
 
-    // A faucet pays a fixed amount, so the requested deposit can easily exceed
-    // what the wallet holds. Depositing the whole spendable balance is the
-    // useful interpretation here: the caller asked for "as much as we have",
-    // and failing with a confusing "insufficient funds" against a wallet that
-    // plainly has funds helps nobody.
-    //
-    // The fee has to come out of that balance, not on top of it. Worse, the
-    // SDK's coin selection will not build a change output below its 1000-sat
-    // dust floor — it only accepts a change-less spend when the inputs happen
-    // to cover amount + the smaller no-change fee exactly. So the amount that
-    // actually lands has to leave room for the fee *and* a spendable change
-    // output, or the selection fails even though the balance looks sufficient.
-    const spendable = context.wallet.balance?.confirmed ?? 0n;
-    const estimatedFeeSats = BigInt(Math.ceil((10.5 + 68 + 31 + 31) * this.config.depositFeeRateSatVb));
-    const effectiveAmount = amountSats > spendable ? spendable - estimatedFeeSats - SAFE_DUST_THRESHOLD_SATS : amountSats;
+    const effectiveAmount = this.effectiveDepositAmount(context.wallet, amountSats);
 
     // The SDK's own one-deposit-per-vault guard runs a `scantxoutset` too,
     // and it has no retry of its own — the same neighbour's scan that the
@@ -317,6 +346,37 @@ export class TachiSdkAdapter implements TachiAdapter {
         // a vault and wants a second deposit must opt in explicitly. The fund
         // flow creates a fresh vault per run and never sets this.
         ...(options?.allowRedeposit ? { allowRedeposit: true } : {}),
+      }),
+    );
+    return { txid: result.txid, amountSats: result.amountSats };
+  }
+
+  /**
+   * Pays from one vault's funding wallet into another vault's P2TR. The SDK's
+   * `depositToVault` takes the destination vault and the funding wallet as
+   * separate arguments and never checks that the wallet owns the vault — a
+   * deposit is a plain L1 transaction from any P2WPKH wallet to a vault
+   * address — so this is a supported call shape, not a bypass. The destination
+   * is a receiving vault, so the one-deposit guard is bypassed: a merchant
+   * vault takes many deposits over its life, and the caller (the pay-to-vault
+   * flow) tracks which deposit txids have already been settled.
+   */
+  async depositFromVaultToVault(sourceVaultId: string, targetVaultId: string, amountSats: bigint) {
+    const target = this.vaults.get(targetVaultId);
+    const source = this.depositContexts.get(sourceVaultId);
+    if (!target) throw new Error("Unknown vault (target); create it before paying into it");
+    if (!source) throw new Error("Unknown vault (source); create it before paying from it");
+    await this.withScanLockRetry(() => source.wallet.sync());
+    const effectiveAmount = this.effectiveDepositAmount(source.wallet, amountSats);
+    const result = await this.withScanLockRetry(() =>
+      depositTaurusVault({
+        vault: target,
+        userWallet: source.wallet,
+        rpc: source.rpc,
+        amountSats: effectiveAmount,
+        feeRateSatVb: this.config.depositFeeRateSatVb,
+        maxFeeRateSatVb: 10,
+        allowRedeposit: true,
       }),
     );
     return { txid: result.txid, amountSats: result.amountSats };
@@ -366,12 +426,18 @@ export class TachiSdkAdapter implements TachiAdapter {
     throw lastError;
   }
 
-  async findConfirmedVaultDeposit(vaultId: string, minimumSats: bigint) {
+  /**
+   * Scans the vault's P2TR address for confirmed unspent outputs. Shared by
+   * `findConfirmedVaultDeposit` (one deposit, first match) and the pay-to-vault
+   * flow (every deposit, so a new payment can be told from one already
+   * settled). The scan goes through the daemon's Bitcoin RPC with the same
+   * scan-lock retry as the wallet sync; the Tachi-proxied RPC is the fallback.
+   */
+  private async scanVaultUnspents(vaultId: string): Promise<Array<{ txid: string; amount: number; confirmations?: number }>> {
     const vault = this.vaults.get(vaultId);
     if (!vault) throw new Error("Unknown vault; create it before querying deposits");
-    let unspents: Array<{ txid: string; amount: number; confirmations?: number }> = [];
     try {
-      unspents = await this.withScanLockRetry(async () => {
+      return await this.withScanLockRetry(async () => {
         const root = new BitcoinCoreRpcClient({
           url: this.config.bitcoinRpcUrl,
           username: this.config.bitcoinRpcUsername,
@@ -396,7 +462,7 @@ export class TachiSdkAdapter implements TachiAdapter {
         if (scan.error) {
           throw new Error(scan.error.message || JSON.stringify(scan.error));
         }
-        unspents = scan.result?.unspents ?? [];
+        return scan.result?.unspents ?? [];
       } catch (proxyError) {
         throw new Error(
           `Bitcoin RPC scan failed both locally (${localError instanceof Error ? localError.message : String(localError)}) and via Tachi proxy (${proxyError instanceof Error ? proxyError.message : String(proxyError)})`,
@@ -404,8 +470,37 @@ export class TachiSdkAdapter implements TachiAdapter {
         );
       }
     }
-    const match = unspents.find((utxo) => BigInt(Math.round(utxo.amount * 100_000_000)) >= minimumSats);
-    return match ? { txid: match.txid, amountSats: BigInt(Math.round(match.amount * 100_000_000)) } : null;
+  }
+
+  async listConfirmedVaultDeposits(vaultId: string) {
+    const unspents = await this.scanVaultUnspents(vaultId);
+    return unspents.map((utxo) => ({ txid: utxo.txid, amountSats: BigInt(Math.round(utxo.amount * 100_000_000)) }));
+  }
+
+  async listUnspentVtxos(vaultId: string) {
+    const vault = this.vaults.get(vaultId);
+    if (!vault) throw new Error("Unknown vault; create it before querying VTXOs");
+    const existing = await this.client.getAddressVtxos(vault.userKey.xOnly.toString("hex"), true);
+    // The daemon's JSON carries the value as `amount`; the SDK's typed record
+    // calls it `amountSats`. Read either, so a daemon that renames the field
+    // does not silently zero every VTXO. An entry with no readable amount is
+    // skipped rather than failing the whole listing for one malformed row.
+    const parsed: Array<{ id: string; amountSats: bigint }> = [];
+    for (const item of existing.vtxos) {
+      if (item.spent) continue;
+      const raw = item as unknown as Record<string, unknown>;
+      const amount = raw.amount ?? raw.amountSats;
+      const sats = typeof amount === "bigint" ? amount : Math.round(Number(amount));
+      if (!Number.isFinite(Number(sats))) continue;
+      parsed.push({ id: String(raw.id), amountSats: BigInt(sats) });
+    }
+    return parsed;
+  }
+
+  async findConfirmedVaultDeposit(vaultId: string, minimumSats: bigint) {
+    const deposits = await this.listConfirmedVaultDeposits(vaultId);
+    const match = deposits.find((utxo) => utxo.amountSats >= minimumSats);
+    return match ? { txid: match.txid, amountSats: match.amountSats } : null;
   }
 
   async registerDeposit(vaultId: string, amountSats: bigint) {

@@ -1,13 +1,18 @@
 # SatsLoom
 
-SatsLoom is a merchant payment product for Bitcoin signet: it issues real BOLT11 invoices on its own Lightning node, watches the rail for settlement, and credits a payment only when the node reveals a preimage that hashes to the invoice's payment hash.
+SatsLoom is a merchant payment product for Bitcoin signet: it issues invoices and settles them as BTC signet payments into the merchant's Tachi vault — the customer pays L1 BTC to the merchant's vault address, the API watches for the deposit, registers it as a VTXO, and marks the invoice paid, with an explorer link for every transaction. A Lightning rail stays live as a second option (real BOLT11 invoices on its own node, credited only on a valid preimage), but it is no longer the settlement story.
 
-Settlement is real. Run the API against an LND node and a payment you make is a payment a Lightning node confirms — not a button that says it worked. Signet coins have no monetary value, so nothing here can move mainnet funds. The simulation surface (invoice lifecycle, refunds, payouts, liquidity views) is still present and still labelled `simulation` in every response envelope, so a caller is never confused about which path produced a result.
+Settlement is real. Run the API and a payment you make is a payment that lands in the merchant's vault on signet — not a button that says it worked. Signet coins have no monetary value, so nothing here can move mainnet funds. The simulation surface (invoice lifecycle, refunds, payouts, liquidity views) is still present and still labelled `simulation` in every response envelope, so a caller is never confused about which path produced a result.
+
+Pay-to-vault is settlement *into* the merchant's vault, not a Tachi transfer to a third party: a transfer would need 5-of-7 quorum cosignatures and the SDK exposes only `cosignRefund`, so no code here claims one. A deposit needs no cosign at all — it is a plain Bitcoin transaction the customer's wallet signs alone.
 
 ## Live rail
 
 | Capability | Status | How it is verified |
 |---|---|---|
+| Pay-to-vault settlement on signet | ✅ live | `POST /api/tachi/invoices/:id/pay-vault` → deposit confirmed on Bitcoin, registration committed on the Tachi ledger |
+| Merchant Tachi vault | ✅ live | `POST /api/tachi/merchant-vault` → persistent P2TR vault from the live 7-validator quorum |
+| Deposit → VTXO registration | ✅ live | deposit tx on mempool.space; `TxVaultOpen` committed, code 0, on `signet.tachibtcscan.com` |
 | Real BOLT11 invoice on signet | ✅ live | `POST /api/live/invoices` → `lntbs…` |
 | Lightning payment settled and credited | ✅ live | paid by a second node, `settled: true` |
 | Preimage proof | ✅ live | `sha256(preimage) == paymentHash` |
@@ -17,7 +22,7 @@ Settlement is real. Run the API against an LND node and a payment you make is a 
 | Route scoring on live liquidity | partial | scored from the rail's node view; single route, no multi-path |
 | Refunds, payouts | simulation | records only; no transfer is executed |
 
-The credit path is deliberately conservative: a rail reporting `paid` without a valid preimage is treated as a bug or an attack and fails closed rather than crediting.
+The credit path is deliberately conservative: a rail reporting `paid` without a valid preimage is treated as a bug or an attack and fails closed rather than crediting. The pay-to-vault path is equally strict: a deposit only settles an invoice when its amount equals the invoice amount exactly and its txid has not already been settled, and a registration that would attribute an older payment's VTXO fails loudly instead of crediting the wrong one.
 
 ### Run it live
 
@@ -45,7 +50,7 @@ A strictly-configured but broken node takes the live routes offline loudly (503 
 
 ### Test a payment end to end
 
-From the homepage, open the **PAY IT FOR REAL** section, set an amount, and issue the invoice. Pay it with any signet wallet, or run the two-node proof:
+From the homepage, open the **PAY IT FOR REAL** section and pay with BTC (signet): set an amount, start the payment, and send exactly that amount in L1 BTC to the merchant vault address shown. The API watches the address, registers the deposit as a VTXO, and marks the invoice paid — verify the deposit on mempool.space and the registration on the Tachi Explorer. Or pay over Lightning with the panel below it, using any signet wallet or the two-node proof:
 
 ```sh
 node scripts/live-signet-proof.mts
@@ -61,7 +66,7 @@ Requirements: Node.js 22.6 or newer and npm.
 
 ```sh
 npm ci
-npm test          # 87 tests, fixture rail pinned in vitest.config.ts
+npm test          # 136 tests, fixture rail pinned in vitest.config.ts
 npm run typecheck
 npm run build
 npm run dev       # API :3001, web :5174
@@ -76,7 +81,7 @@ The layout is mobile-first and verified overflow-free at 320, 360, 390, 414, 600
 
 ### Why there is no wallet-connection widget
 
-SatsLoom is a merchant: it owns its node, issues invoices, and never holds a user's keys. The BOLT11 invoice *is* the payment primitive, so a payer needs a signet wallet with test coins rather than a connection to this site. Cold-start instructions are on the page next to the invoice. No connect-button integration against an unexercised wallet provider is shipped, because unverified payment code is worse than a clear "bring your own wallet."
+SatsLoom is a merchant: it owns its vault and its node, issues invoices, and never holds a user's keys. For pay-to-vault, the merchant vault address *is* the payment primitive — a payer needs a signet wallet with test coins rather than a connection to this site. For the Lightning rail, the BOLT11 invoice is the payment primitive. Cold-start instructions are on the page next to the invoice. No connect-button integration against an unexercised wallet provider is shipped, because unverified payment code is worse than a clear "bring your own wallet."
 
 ## Simulation surface
 
@@ -90,7 +95,7 @@ This is deliberate and stays visible. `SATSLOOM_DEMO_MODE=true` enables the simu
 
 `vercel.json` wires the static bundle (`apps/web`) and the API (`apps/api`, whose entrypoint
 default-exports a `req`/`res` handler for the Vercel runtime). Locally the same module listens on a
-port, so `npm run dev` gets the invoice watcher and a real Lightning node. Any `.env` variable that
+port, so `npm run dev` gets the invoice watcher, the pay-to-vault watcher, and a real Lightning node. Any `.env` variable that
 must be visible to the serverless functions has to be set in Vercel — the local `.env` file that
 backs `.env.example` is not shipped to the Function.
 
@@ -122,4 +127,4 @@ scripts/liveness-audit.ts       Per-capability verification report (npm run audi
 
 ## License
 
-No license is currently declared in this repository. Do not assume permission to redistribute or use it under MIT or another open-source license.
+Licensed under the MIT License. See [LICENSE](LICENSE).
