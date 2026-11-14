@@ -299,18 +299,26 @@ export class TachiSdkAdapter implements TachiAdapter {
     const estimatedFeeSats = BigInt(Math.ceil((10.5 + 68 + 31 + 31) * this.config.depositFeeRateSatVb));
     const effectiveAmount = amountSats > spendable ? spendable - estimatedFeeSats - SAFE_DUST_THRESHOLD_SATS : amountSats;
 
-    const result = await depositTaurusVault({
-      vault,
-      userWallet: context.wallet,
-      rpc: context.rpc,
-      amountSats: effectiveAmount,
-      feeRateSatVb: this.config.depositFeeRateSatVb,
-      maxFeeRateSatVb: 10,
-      // The SDK guards one deposit per vault; a caller that has already funded
-      // a vault and wants a second deposit must opt in explicitly. The fund
-      // flow creates a fresh vault per run and never sets this.
-      ...(options?.allowRedeposit ? { allowRedeposit: true } : {}),
-    });
+    // The SDK's own one-deposit-per-vault guard runs a `scantxoutset` too,
+    // and it has no retry of its own — the same neighbour's scan that the
+    // wallet sync above survives kills the deposit outright (twice on this
+    // run: 18:26 and 18:31 UTC). Retry the whole SDK call on the lock error
+    // only: the guard precedes any broadcast, so a retried call cannot
+    // double-deposit, and every other error is rethrown unchanged.
+    const result = await this.withScanLockRetry(() =>
+      depositTaurusVault({
+        vault,
+        userWallet: context.wallet,
+        rpc: context.rpc,
+        amountSats: effectiveAmount,
+        feeRateSatVb: this.config.depositFeeRateSatVb,
+        maxFeeRateSatVb: 10,
+        // The SDK guards one deposit per vault; a caller that has already funded
+        // a vault and wants a second deposit must opt in explicitly. The fund
+        // flow creates a fresh vault per run and never sets this.
+        ...(options?.allowRedeposit ? { allowRedeposit: true } : {}),
+      }),
+    );
     return { txid: result.txid, amountSats: result.amountSats };
   }
 
